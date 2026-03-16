@@ -1,0 +1,5 @@
+name: dummy
+checkpoint_path: null
+params:
+  num_pred_frames: 5
+  frame_shape: [576, 320, 3]

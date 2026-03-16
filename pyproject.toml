@@ -1,0 +1,124 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openworld"
+version = "0.1.0"
+description = "A modular framework for world-model-based robot policy evaluation and fine-tuning"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "accelerate",
+    "decord",
+    "diffusers==0.34.0",
+    "einops",
+    "ftfy",
+    "hydra-core",
+    "imageio[ffmpeg]",
+    "joblib",
+    "mediapy",
+    "natsort",
+    "numpy",
+    "omegaconf",
+    "open_clip_torch",
+    "pandas",
+    "pillow",
+    "pytorch-msssim",
+    "pyyaml",
+    "rich",
+    "scipy",
+    "swanlab",
+    "torch",
+    "torchmetrics",
+    "tqdm",
+    "transformers==4.53.2",
+    "wandb",
+    "wandb-osh",
+]
+
+[project.optional-dependencies]
+policy-openpi = [
+    "augmax>=0.3.4",
+    "beartype==0.19.0",
+    "chex>=0.1.89",
+    "dm-tree>=0.1.8",
+    "einops>=0.8.1",
+    "etils>=1.9.4",
+    "filelock>=3.16.1",
+    "flax==0.10.2",
+    "flatbuffers>=24.3.25",
+    "fsspec[gcs]>=2025.9.0",
+    "gym-aloha>=0.1.1",
+    "imageio>=2.36.1",
+    "jax[cuda12]==0.5.3",
+    "jaxtyping==0.2.36",
+    "lerobot>=0.3.3",
+    "ml_collections==1.0.0",
+    "ml-dtypes==0.4.1",
+    "numpydantic>=1.6.6",
+    "opencv-python>=4.10.0.84",
+    "optax>=0.2.4",
+    "orbax-checkpoint==0.11.13",
+    "polars>=1.30.0",
+    "rich>=14.0.0",
+    "safetensors>=0.5.3",
+    "sentencepiece>=0.2.1",
+    "tensorstore==0.1.74",
+    "tqdm-loggable>=0.2",
+    "treescope>=0.1.10",
+    "tyro>=0.9.5",
+    "typing-extensions>=4.12.2",
+    "websockets>=13.0",
+]
+policy-dp = [
+    "av==12.3.0",
+    "gdown==5.2.0",
+    "gym==0.22.0",
+    "h5py",
+    "imageio>=2.35.1",
+    "matplotlib==3.7.5",
+    "msgpack>=1.0.0",
+    "openai",
+    "opencv-python",
+    "pretty_errors==1.2.25",
+    "tyro>=0.9.5",
+    "websockets>=13.0",
+]
+reward-robometer = [
+    "Pillow>=9.0.0",
+    "requests>=2.32.4",
+]
+reward-topreward = [
+    "decord>=0.6.0",
+    "moviepy>=1.0.3",
+    "opencv-python>=4.8.0",
+    "openai",
+    "Pillow>=9.0.0",
+    "requests>=2.32.4",
+]
+dev = [
+    "imageio[ffmpeg]",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["openworld*"]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "policy-dp" },
+        { extra = "policy-openpi" },
+    ],
+    [
+        { extra = "reward-robometer" },
+        { extra = "reward-topreward" },
+    ],
+]
+
+[tool.uv.sources]
+lerobot = { git = "https://github.com/huggingface/lerobot", rev = "0cf864870cf29f4738d3ade893e6fd13fbd7cdb5" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

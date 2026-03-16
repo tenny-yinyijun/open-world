@@ -1,0 +1,4 @@
+name: topreward
+params:
+  endpoint_url: null
+  timeout_s: 30.0

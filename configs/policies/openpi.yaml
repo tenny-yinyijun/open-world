@@ -1,0 +1,16 @@
+name: openpi
+checkpoint_path: null
+params:
+  config_name: pi05_droid
+  repo_path: external/openpi
+  server_url: null  # optional websocket fallback, e.g. "ws://localhost:8000"
+  pytorch_device: cuda
+  exterior_view_name: exterior_right
+  wrist_view_name: wrist
+  stacked_view_order: [exterior_left, exterior_right, wrist]
+  resize_height: 224
+  resize_width: 224
+  joint_position_dim: 7
+  action_dim: null
+  action_indices: null
+  action_adapter_checkpoint_path: checkpoints/action_adapter/model2_15_9.pth

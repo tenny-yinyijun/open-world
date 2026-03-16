@@ -1,0 +1,40 @@
+name: vidwm
+
+# Paths to pretrained model components
+# These must be set to actual paths before use
+svd_model_path: null   # e.g. path to stabilityai/stable-video-diffusion-img2vid snapshot
+clip_model_path: null  # e.g. path to openai/clip-vit-base-patch32 snapshot
+checkpoint_path: null  # path to UNet + action encoder .pt checkpoint
+
+params:
+  # Model architecture
+  num_frames: 5
+  num_history: 6
+  action_dim: 7
+  width: 320
+  height: 192
+  frame_level_cond: true
+  text_cond: true
+  his_cond_zero: false
+  dtype: bfloat16
+
+  # Inference parameters
+  motion_bucket_id: 127
+  fps: 7
+  guidance_scale: 2.0
+  num_inference_steps: 4
+  decode_chunk_size: 7
+
+  # Flow-matching / shortcut parameters
+  flow_map_type: flow_map
+  flow_map_loss_type: psd
+  distance_conditioning: true
+  SIGMA_MAX: 700.0
+  SIGMA_MIN: 0.02
+
+  # Action encoder
+  action_encoder_type: unaligned
+  action_encoder_hidden_dim: 1024
+
+  # Output
+  decode_to_rgb: true

@@ -1,0 +1,7 @@
+name: dp
+checkpoint_path: null
+params: {}
+  # norm_stats_path: null
+  # camera_indices: [0, 1]
+  # act_steps: 15
+  # action_dim: 8
