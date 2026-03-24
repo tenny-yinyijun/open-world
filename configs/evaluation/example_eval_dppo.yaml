@@ -4,7 +4,7 @@ world_model:
   params:
     svd_model_path: external/stable-video-diffusion-img2vid
     clip_model_path: external/clip-vit-base-patch32
-    debug: false
+    debug: true
     debug_log_limit: 3
     num_frames: 5
     num_history: 6
@@ -16,21 +16,17 @@ world_model:
     decode_to_rgb: true
 
 policy:
-  name: openpi
-  checkpoint_path: gs://openpi-assets/checkpoints/pi05_droid
+  name: dp
+  checkpoint_path: path/to/dppo/checkpoint.pt
   params:
-    config_name: pi05_droid
-    repo_path: external/openpi
-    pytorch_device: cuda
-    debug: false
-    debug_log_limit: 3
-    exterior_view_name: exterior_right
-    wrist_view_name: wrist
+    repo_path: external/dsrl/dppo
+    config_path: configs/training/dppo_pretrain_0108_v0_success.yaml
+    normalization_path: data/dppo_processed/0108_v0_success/normalization.npz
+    ordered_obs_keys: ["joint_positions", "gripper_position"]
+    view_names: ["wrist", "exterior_right"]
     stacked_view_order: [exterior_left, exterior_right, wrist]
-    resize_height: 224
-    resize_width: 224
-    joint_position_dim: 7
-    action_adapter_checkpoint_path: checkpoints/action_adapter/model2_15_9.pth
+    camera_indices: [0, 1]
+    device: cuda
 
 reward_model:
   name: robometer
@@ -42,9 +38,7 @@ reward_model:
 scheduler:
   chunk_size: 15
 
-# Duration of the rollout in seconds.  At 15 Hz action frequency and
-# chunk_size 15, each second produces one world-model call (5 frames).
 duration: 10
 action_hz: 15
-video_dir: outputs/irom_test_carrot_openpi_videos_4
+video_dir: outputs/irom_test_carrot_dppo_videos
 dataset_path: data/evaluation_suites/irom_test_carrot

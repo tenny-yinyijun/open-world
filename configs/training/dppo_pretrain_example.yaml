@@ -1,0 +1,99 @@
+defaults:
+  - _self_
+hydra:
+  run:
+    dir: ${logdir}
+_target_: agent.pretrain.train_diffusion_agent.TrainDiffusionAgent
+
+keyword: dataset_name
+
+name: v0_carrot_${keyword}
+logdir: outputs/dppo-pretrain/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
+train_dataset_path: data/dppo_processed/${keyword}/train.npz
+
+seed: 42
+device: cuda:0
+env: v0_carrot
+obs_dim: 8  # 7 joint positions + 1 gripper
+action_dim: 8  # 7 joint positions + 1 gripper
+denoising_steps: 100
+horizon_steps: 16
+cond_steps: 1
+img_cond_steps: 1
+
+wandb:
+  entity: ${oc.env:DPPO_WANDB_ENTITY,null}
+  project: droid-${env}-pretrain
+  run: ${now:%H-%M-%S}_${name}
+
+shape_meta:
+  obs:
+    rgb:
+      shape: [6, 192, 192]  # 2 views x 3 channels
+    state:
+      shape: [8]
+  action:
+    shape: [8]
+
+train:
+  n_epochs: 4000
+  batch_size: 256
+  learning_rate: 1e-4
+  weight_decay: 1e-6
+  lr_scheduler:
+    first_cycle_steps: 2000
+    warmup_steps: 100
+    min_lr: 1e-5
+  save_model_freq: 500
+
+model:
+  _target_: model.diffusion.diffusion.DiffusionModel
+  predict_epsilon: True
+  denoised_clip_value: 1.0
+  network:
+    _target_: model.diffusion.unet.VisionUnet1D
+    backbone:
+      _target_: model.common.vit.VitEncoder
+      obs_shape: ${shape_meta.obs.rgb.shape}
+      num_channel: ${eval:'3 * ${img_cond_steps}'}
+      img_h: 192
+      img_w: 192
+      cfg:
+        patch_size: 8
+        depth: 1
+        embed_dim: 128
+        num_heads: 4
+        embed_style: embed2
+        embed_norm: 0
+    num_img: 2
+    img_cond_steps: ${img_cond_steps}
+    augment: True
+    spatial_emb: 128
+    diffusion_step_embed_dim: 32
+    dim: 64
+    dim_mults: [1, 2]
+    kernel_size: 5
+    n_groups: 8
+    smaller_encoder: False
+    cond_predict_scale: True
+    action_dim: ${action_dim}
+    cond_dim: ${eval:'${obs_dim} * ${cond_steps}'}
+  horizon_steps: ${horizon_steps}
+  obs_dim: ${obs_dim}
+  action_dim: ${action_dim}
+  denoising_steps: ${denoising_steps}
+  device: ${device}
+
+ema:
+  decay: 0.995
+
+train_dataset:
+  _target_: agent.dataset.sequence.StitchedSequenceDataset
+  use_img: True
+  num_img_views: 2
+  dataset_path: ${train_dataset_path}
+  horizon_steps: ${horizon_steps}
+  max_n_episodes: 100
+  cond_steps: ${cond_steps}
+  img_cond_steps: ${img_cond_steps}
+  device: ${device}

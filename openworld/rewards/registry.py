@@ -15,8 +15,6 @@ REWARD_MODEL_REGISTRY: dict[str, BackendSpec] = {
     "robometer": BackendSpec(
         module_path="openworld.rewards.robometer_reward_model",
         class_name="RobometerRewardModel",
-        extra_name="reward-robometer",
-        required_modules=("requests",),
     ),
     "topreward": BackendSpec(
         module_path="openworld.rewards.topreward_reward_model",

@@ -5047,10 +5047,6 @@ policy-openpi = [
     { name = "tyro" },
     { name = "websockets" },
 ]
-reward-robometer = [
-    { name = "pillow" },
-    { name = "requests" },
-]
 reward-topreward = [
     { name = "decord" },
     { name = "moviepy" },
@@ -5113,14 +5109,12 @@ requires-dist = [
     { name = "orbax-checkpoint", marker = "extra == 'policy-openpi'", specifier = "==0.11.13" },
     { name = "pandas" },
     { name = "pillow" },
-    { name = "pillow", marker = "extra == 'reward-robometer'", specifier = ">=9.0.0" },
     { name = "pillow", marker = "extra == 'reward-topreward'", specifier = ">=9.0.0" },
     { name = "polars", marker = "extra == 'policy-openpi'", specifier = ">=1.30.0" },
     { name = "pretty-errors", marker = "extra == 'policy-dp'", specifier = "==1.2.25" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytorch-msssim" },
     { name = "pyyaml" },
-    { name = "requests", marker = "extra == 'reward-robometer'", specifier = ">=2.32.4" },
     { name = "requests", marker = "extra == 'reward-topreward'", specifier = ">=2.32.4" },
     { name = "rich" },
     { name = "rich", marker = "extra == 'policy-openpi'", specifier = ">=14.0.0" },

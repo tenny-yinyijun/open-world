@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 import torch
 
 
-DEFAULT_DPPO_REPO = Path(__file__).resolve().parents[2] / "external" / "dppo"
+DEFAULT_DPPO_REPO = Path(__file__).resolve().parents[2] / "external" / "dsrl" / "dppo"
 DEFAULT_POLICY_JSON = DEFAULT_DPPO_REPO / "asset" / "policy.json"
 
 
@@ -22,7 +22,7 @@ def ensure_dppo_repo_on_path(repo_path: Optional[str] = None) -> Path:
     if not repo_root.exists():
         raise FileNotFoundError(
             f"DPPO repo not found at {repo_root}. Clone your DPPO fork into "
-            "`external/dppo` or set `repo_path` explicitly in the policy config."
+            "`external/dsrl/dppo` or set `repo_path` explicitly in the policy config."
         )
     repo_str = str(repo_root)
     if repo_str not in sys.path:
@@ -44,7 +44,7 @@ def load_policy_paths_from_alias(
     if not policy_json.exists():
         raise FileNotFoundError(
             f"Policy JSON file not found at: {policy_json}. "
-            "Expected it under your DPPO fork in `external/dppo/asset/policy.json` "
+            "Expected it under your DPPO fork in `external/dsrl/dppo/asset/policy.json` "
             "unless `policy_json` is overridden."
         )
 

@@ -86,8 +86,9 @@ policy-dp = [
     "websockets>=13.0",
 ]
 reward-robometer = [
-    "Pillow>=9.0.0",
-    "requests>=2.32.4",
+    # Robometer runs in its own venv (external/robometer) due to
+    # incompatible dependencies.  This extra is kept as a no-op marker
+    # so that `uv sync --extra reward-robometer` doesn't error.
 ]
 reward-topreward = [
     "decord>=0.6.0",

@@ -5,10 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+import cv2
 import numpy as np
 from PIL import Image
+from scipy.spatial.transform import Rotation as R
 
 from openworld.policies.base_policy import Policy
+from openworld.policies.openpi_action_adapter import get_fk_solution
 from openworld.policies.dppo_loader import (
     DEFAULT_POLICY_JSON,
     DEFAULT_DPPO_REPO,
@@ -76,7 +79,7 @@ class DPPolicy(Policy):
                 "DPPolicy.act() requires a loaded DPPO model. "
                 "Set `checkpoint_path` in the policy config and provide the "
                 "matching DPPO config and normalization stats from your "
-                "`external/dppo` fork."
+                "`external/dsrl/dppo` fork."
             )
 
         if not self._pending_actions:
@@ -90,7 +93,40 @@ class DPPolicy(Policy):
         if not self._pending_actions:
             raise RuntimeError("DPPolicy produced an empty action sequence.")
 
-        return self._pending_actions.pop(0)
+        action = self._pending_actions.pop(0)
+        return self._action_to_env_format(action)
+
+    @staticmethod
+    def _action_to_env_format(action: np.ndarray) -> dict[str, Any]:
+        """Convert DP action (joint positions + gripper) to world model format.
+
+        The world model expects cartesian actions (xyz + euler + gripper, 7D).
+        The DP policy outputs joint positions + gripper (8D).  We use forward
+        kinematics to bridge the two representations and also propagate the
+        joint-level state so subsequent policy queries see correct proprioception.
+        """
+        joint_pos = action[:7]
+        gripper_pos = action[7:8]
+
+        # Forward kinematics: joint positions → cartesian pose
+        fk = get_fk_solution(joint_pos)
+        xyz = fk[:3, 3].astype(np.float32)
+        euler = R.from_matrix(fk[:3, :3]).as_euler("xyz").astype(np.float32)
+        cartesian_action = np.concatenate([xyz, euler, gripper_pos], axis=0)
+
+        return {
+            "env_action": cartesian_action,
+            "state_update": {
+                "robot": {
+                    "state_representation": "cartesian_position_with_gripper",
+                    "state": cartesian_action,
+                    "cartesian_position": cartesian_action[:6],
+                    "joint_position": joint_pos,
+                    "joint_positions": joint_pos,
+                    "gripper_position": gripper_pos,
+                }
+            },
+        }
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
         ensure_dppo_repo_on_path(self.repo_path)
@@ -147,6 +183,14 @@ class DPPolicy(Policy):
 
             if "robot" in state and isinstance(state["robot"], dict):
                 robot_state = state["robot"]
+                # Prefer explicit joint_positions/gripper_position if available
+                if self.ordered_obs_keys:
+                    extracted = {}
+                    for key in self.ordered_obs_keys:
+                        if key in robot_state:
+                            extracted[key] = self._as_row_vector(robot_state[key])
+                    if extracted:
+                        return extracted
                 if "state" in robot_state:
                     return self._vector_to_robot_state(robot_state["state"])
 
@@ -180,12 +224,22 @@ class DPPolicy(Policy):
     def _build_image_dict(self, observation: Any) -> dict[int, np.ndarray]:
         resolved_views = self._resolve_views(observation)
         return {
-            camera_idx: self._to_bgr_float32(resolved_views[view_name])
+            camera_idx: self._to_bgr_float32(
+                self._resize_to_square(resolved_views[view_name])
+            )
             for camera_idx, view_name in zip(
                 getattr(self._policy, "camera_indices", self.camera_indices or []),
                 self.view_names,
             )
         }
+
+    @staticmethod
+    def _resize_to_square(image: np.ndarray, size: int = 192) -> np.ndarray:
+        """Resize image to square if it isn't already (policy expects square input)."""
+        h, w = image.shape[:2]
+        if h == w:
+            return image
+        return cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
 
     def _resolve_views(self, observation: Any) -> dict[str, np.ndarray]:
         if isinstance(observation, dict):

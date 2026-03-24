@@ -1,6 +1,11 @@
 # 🌐 open-world
 
-OpenWorld is an open-source platform for building, fine-tuning, and evaluating robotic policies using video world models.
+OpenWorld is an open-source platform for building, fine-tuning, and evaluating robotic policies using video world models. We currently support:
+
+* Fast world model inference with shortcut models
+* Policy evaluation on custom benchmarks with automatic scoring
+
+**🔧 Some of the functions are still under construction!**
 
 ## Installation
 
@@ -9,21 +14,16 @@ Requirements:
 - Python 3.11+
 - uv for environment management
 
-Base environment only:
-
 ```bash
+# Dependencies for base environment only:
 uv sync
+
+# Include extra dependencies for using different policy/reward model. Example:
+uv sync --extra policy-dp --extra reward-robometer
+uv sync --extra policy-openpi --extra reward-robometer
 ```
 
-Dependencies for different policies/reward models:
-
-```bash
-uv sync --extra policy-dp
-uv sync --extra policy-openpi
-uv sync --extra reward-robometer
-```
-
-Install assets to support base world model:
+Finally, install required assets for the base world model:
 
 ```bash
 sudo apt-get install git-lfs -y
@@ -33,7 +33,7 @@ bash external/download_models.sh
 
 ## Workflows
 
-- 🤖 [Policy Training](docs/TRAIN_POLICY.md) (TODO)
+- 🤖 [Policy Training](docs/TRAIN_POLICY.md)
 - 📋 [Policy Evaluation](docs/EVAL.md)
 - ⚙️ [Policy Fine-tuning](docs/FT.md) (TODO)
 - 🌎 [World Model Training](docs/TRAIN_WM.md) (TODO)
@@ -42,13 +42,10 @@ bash external/download_models.sh
 
 - [ ] Add more reward function support
 - [ ] Example benchmarks
-- [ ] Task Generator
+- [ ] Data & checkpoints
 
-## Next Steps
+## Acknowledgements
 
-<!-- ## Caveats
+This repo is based on [Ctrl-World](https://github.com/Robert-gyj/Ctrl-World), [dppo](https://github.com/irom-princeton/dppo), [dsrl](https://github.com/ajwagen/dsrl), [openpi](https://github.com/Physical-Intelligence/openpi), and [robometer](https://github.com/robometer/robometer). 
 
-- The base install is world-model-first. Policy and reward stacks should stay out of `[project.dependencies]` unless they are truly shared across backends.
-- Upstream backends have different Python, CUDA, and accelerator expectations. In particular, Robometer's upstream repo currently targets a different environment than the base world-model stack, so OpenWorld keeps its reward integration client-side and optional.
-- When adding a new backend, update three places together: the extra in `pyproject.toml`, the lazy registry entry, and the adapter module with a guarded dependency check or clear runtime error.
-- Keep adapter imports isolated. Do not import backend-specific packages from package `__init__` files or common interfaces. -->
+Core contributors:
