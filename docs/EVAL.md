@@ -6,6 +6,10 @@ Policy evaluation requires the following:
 * A trained policy (dp or openpi)
 * (Optional) A reward function for success annotations
 
+Output will contain the following:
+* `videos/`: generated video rollouts from the world model during policy interaction
+* `annotated/`: generated videos with reward annotations overlay
+
 ## Creating a test suite
 
 Each test case requires the following input:
@@ -15,6 +19,10 @@ Each test case requires the following input:
 - (Optional) Task instruction
 
 We provide an example test suite for the droid setup at [data/evaluation_suites/irom_test_carrot](data/evaluation_suites/irom_test_carrot). Feel free to create your own!
+
+## Preparing an Policy
+
+Follow [TRAIN_POLICY.md](TRAIN_POLICY.md) for instructions on 
 
 ## Setting up Reward Function
 
@@ -34,4 +42,6 @@ uv run python scripts/run_evaluation.py \
   --config configs/evaluation/example_eval_openpi.yaml
 ```
 
-Output will contain the following:
+💡 `num_inference_steps` controls the number of diffusion denoising steps, set it to a lower value for faster inference (e.g. 4), or a higher value for better quality (e.g. 50).
+
+💡 `duration` controls the length of generation (in seconds).

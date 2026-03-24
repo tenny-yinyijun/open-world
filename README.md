@@ -18,7 +18,7 @@ Requirements:
 # Dependencies for base environment only:
 uv sync
 
-# Include extra dependencies for using different policy/reward model. Example:
+# Include extra dependencies for using different policies/reward models. Example:
 uv sync --extra policy-dp --extra reward-robometer
 uv sync --extra policy-openpi --extra reward-robometer
 ```
