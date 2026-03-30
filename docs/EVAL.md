@@ -18,7 +18,7 @@ Each test case requires the following input:
 - Initial robot state + gripper position
 - (Optional) Task instruction
 
-We provide an example test suite for the droid setup at [data/evaluation_suites/irom_test_carrot](data/evaluation_suites/irom_test_carrot). Feel free to create your own!
+We provide an example test suite for the droid setup at [data/evaluation_suites/irom_test_carrot](data/evaluation_suites/irom_test_carrot). Feel free to create your own following the same format!
 
 ## Preparing a Policy
 
@@ -37,7 +37,7 @@ Finally, to generate evaluation videos with reward annotations, run:
 
 ```bash
 # Example: openpi
-uv sync --extra openpi --extra robometer
+uv sync --extra policy-openpi --extra reward-robometer
 uv run python scripts/run_evaluation.py \
   --config configs/evaluation/example_eval_openpi.yaml
 ```

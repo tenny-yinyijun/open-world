@@ -41,4 +41,4 @@ scheduler:
 duration: 10
 action_hz: 15
 video_dir: outputs/irom_test_carrot_dppo_videos
-dataset_path: data/evaluation_suites/irom_test_carrot
+dataset_path: data/benchmark/irom_test_carrot

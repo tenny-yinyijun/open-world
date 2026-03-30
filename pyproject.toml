@@ -61,6 +61,7 @@ policy-openpi = [
     "optax>=0.2.4",
     "orbax-checkpoint==0.11.13",
     "polars>=1.30.0",
+    "pytest",
     "rich>=14.0.0",
     "safetensors>=0.5.3",
     "sentencepiece>=0.2.1",
@@ -97,10 +98,6 @@ reward-topreward = [
     "openai",
     "Pillow>=9.0.0",
     "requests>=2.32.4",
-]
-dev = [
-    "imageio[ffmpeg]",
-    "pytest",
 ]
 
 [tool.setuptools.packages.find]
