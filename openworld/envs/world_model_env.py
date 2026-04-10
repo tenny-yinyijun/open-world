@@ -308,6 +308,8 @@ class WorldModelEnv:
         augmented = dict(state)
         augmented["_action_history"] = prior_actions
         augmented["_robot_state_history"] = prior_robot_states
+        if self._robot_state_history:
+            augmented["_initial_robot_state"] = self._robot_state_history[0]
         return augmented
 
     @staticmethod

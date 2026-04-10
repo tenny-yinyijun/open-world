@@ -107,7 +107,7 @@ class ActionEncoderCLIPAligned(ActionEncoderBase):
         with torch.no_grad():
             # embeddings from transformed actions
             text_action_embeds = self.encode_text(
-                texts=text_actions.reshape(-1,),
+                texts=text_actions.reshape(-1).tolist(),
                 text_tokenizer=text_tokenizer,
                 text_encoder=text_encoder,
                 text_encoder_is_vit=text_encoder_is_vit,

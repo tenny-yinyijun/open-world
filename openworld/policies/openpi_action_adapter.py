@@ -181,11 +181,21 @@ class OpenPIActionAdapter:
         joint_vel = raw_action_chunk[:, : self.action_dim]
         gripper_pos = np.clip(raw_action_chunk[:, self.action_dim : self.action_dim + 1], 0.0, self.gripper_max)
 
+        # Pad to action_num (15) by repeating last row if the policy outputs fewer steps
+        T = joint_vel.shape[0]
+        if T < self.action_num:
+            joint_vel = np.concatenate(
+                [joint_vel, np.repeat(joint_vel[-1:], self.action_num - T, axis=0)], axis=0,
+            )
+            gripper_pos = np.concatenate(
+                [gripper_pos, np.repeat(gripper_pos[-1:], self.action_num - T, axis=0)], axis=0,
+            )
+
         with torch.no_grad():
             future_joint = self.dynamics_model(current_joint, joint_vel)
 
-        joint_pos = np.concatenate([current_joint, future_joint], axis=0)[: raw_action_chunk.shape[0]]
-        gripper_pos = np.concatenate([current_gripper, gripper_pos], axis=0)[: raw_action_chunk.shape[0]]
+        joint_pos = np.concatenate([current_joint, future_joint], axis=0)[: self.action_num]
+        gripper_pos = np.concatenate([current_gripper, gripper_pos], axis=0)[: self.action_num]
 
         env_actions = []
         for index in range(joint_pos.shape[0]):

@@ -3,7 +3,10 @@ import json
 import logging
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+import yaml
 
 from openworld.utils.io import load_yaml
 
@@ -11,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def _generate_videos(cfg: dict, config_path: Path) -> list[dict]:
+def _generate_videos(cfg: dict) -> list[dict]:
     """Phase 1: Run video generation in a subprocess.
 
     By running in a separate process, all GPU memory is reclaimed by the OS
@@ -24,21 +27,32 @@ def _generate_videos(cfg: dict, config_path: Path) -> list[dict]:
 
     manifest_path = Path(video_dir).resolve() / "manifest.json"
 
-    cmd = [
-        sys.executable, str(Path(__file__).resolve().parent / "generate_videos.py"),
-        "--config", str(config_path),
-        "--manifest-output", str(manifest_path),
-    ]
+    # Write the resolved config (with CLI overrides applied) to a temp file
+    # so the subprocess sees the same values.
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", prefix="eval_cfg_", delete=False
+    ) as tmp:
+        yaml.safe_dump(cfg, tmp)
+        tmp_config_path = tmp.name
 
-    logger.info("Phase 1 — Spawning video generation subprocess ...")
-    logger.info("Running: %s", " ".join(cmd))
+    try:
+        cmd = [
+            sys.executable, str(Path(__file__).resolve().parent / "generate_videos.py"),
+            "--config", tmp_config_path,
+            "--manifest-output", str(manifest_path),
+        ]
 
-    proc = subprocess.run(
-        cmd,
-        text=True,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-    )
+        logger.info("Phase 1 — Spawning video generation subprocess ...")
+        logger.info("Running: %s", " ".join(cmd))
+
+        proc = subprocess.run(
+            cmd,
+            text=True,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+    finally:
+        Path(tmp_config_path).unlink(missing_ok=True)
 
     if proc.returncode != 0:
         logger.error("Video generation subprocess failed (exit code %d)", proc.returncode)
@@ -334,14 +348,22 @@ def main() -> None:
     parser.add_argument(
         "--config", type=str, required=True, help="Path to evaluation YAML config"
     )
+    parser.add_argument(
+        "--dataset_path", type=str, default=None, help="Override dataset_path in config"
+    )
+    parser.add_argument(
+        "--video_dir", type=str, default=None, help="Override video_dir in config"
+    )
     args = parser.parse_args()
 
     cfg = load_yaml(args.config)
-    config_path = Path(args.config).resolve()
-
+    if args.dataset_path is not None:
+        cfg["dataset_path"] = args.dataset_path
+    if args.video_dir is not None:
+        cfg["video_dir"] = args.video_dir
     # Phase 1: generate videos
     video_dir = cfg.get("video_dir")
-    episodes = _generate_videos(cfg, config_path)
+    episodes = _generate_videos(cfg)
 
     # Phase 2: score with reward model (if configured and videos were saved)
     rm_cfg = cfg.get("reward_model", {})

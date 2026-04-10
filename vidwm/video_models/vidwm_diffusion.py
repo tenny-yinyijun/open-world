@@ -1,3 +1,4 @@
+import math
 import shutil
 from rich.console import Console
 
@@ -289,9 +290,8 @@ class VidWMDiffusionPipeline(StableVideoDiffusionPipeline):
             latents,
         )
         
-        if flow_map_type == "flow_map":
-            # NOTE: this make sure latents are from N(0,1), as this is what we assumed in predit_v
-            latents = torch.randn_like(latents)
+        # NOTE: this make sure latents are from N(0,1), as this is what we assumed in predict_v
+        latents = torch.randn_like(latents)
         
         # 7. Prepare guidance scale
         guidance_scale = torch.linspace(min_guidance_scale, max_guidance_scale, num_frames).unsqueeze(0)
@@ -326,11 +326,19 @@ class VidWMDiffusionPipeline(StableVideoDiffusionPipeline):
         if flow_map_type == 'flow_map':
             latents = self.flow_map_solver(
                 num_inference_steps, latents,
-                image_latents, image_embeddings, 
-                added_time_ids, 
+                image_latents, image_embeddings,
+                added_time_ids,
                 num_his, history, cond_wrist,
                 frame_level_cond, do_classifier_free_guidance, flow_map_loss_type=flow_map_loss_type,
                 return_dict_solver=return_dict_solver,
+            )
+        elif flow_map_type == 'shortcut':
+            latents = self.short_cut_solver(
+                num_inference_steps, latents,
+                image_latents, image_embeddings,
+                added_time_ids,
+                num_his, history, cond_wrist,
+                frame_level_cond, do_classifier_free_guidance,
             )
         else:
             raise NotImplementedError(f'flow_map_type {flow_map_type} not implemented!')
@@ -501,7 +509,7 @@ class VidWMDiffusionPipeline(StableVideoDiffusionPipeline):
                 v_pred_output["distance"] = v_pred_output["distance"].chunk(2)[0]
             else:
                 latent_model_input_wo_cond = v_pred_output["latent_input"]
-                
+
             # output
             output = {
                 "frames": latents,
@@ -509,5 +517,61 @@ class VidWMDiffusionPipeline(StableVideoDiffusionPipeline):
                 "timestep": v_pred_output["c_noise"].view(B),
                 "distance": v_pred_output["distance"].view(B),
             }
-             
+
             return output
+
+    # from Fast-Ctrl-World
+    @torch.no_grad()
+    def short_cut_solver(self, num_inference_steps, latents,
+                         image_latents, image_embeddings,
+                         added_time_ids,
+                         num_his=0, history=None, cond_wrist=None,
+                         frame_level_cond=False,
+                         do_classifier_free_guidance=False):
+        device = latents.device
+        B = latents.shape[0]
+
+        if num_inference_steps <= 1:
+            # Single-step shortcut
+            dt_base_val = 0
+            dt = 2.0 ** (-dt_base_val)   # = 1
+            t_val = 1.0 - dt             # = 0
+
+            t = torch.full((B,), t_val, device=device, dtype=torch.float32)
+            t_ = t.view(B, 1, 1, 1, 1).clamp(1/(1+700), 1/(1+0.02))
+            distance = torch.full((B,), dt_base_val, device=device, dtype=torch.int64)
+
+            with self.progress_bar(total=1) as progress_bar:
+                v_pred_output = self.predict_v(t_, latents,
+                                               image_latents, image_embeddings,
+                                               added_time_ids, num_his,
+                                               history=history, cond_wrist=cond_wrist, distance=distance,
+                                               frame_level_cond=frame_level_cond,
+                                               do_classifier_free_guidance=do_classifier_free_guidance)
+                v_pred = v_pred_output["pred_vel"]
+                latents = latents + (1 - t_) * v_pred
+                progress_bar.update()
+        else:
+            # Multi-step shortcut with distance conditioning
+            t_grid = torch.linspace(0.0, 1.0, num_inference_steps + 1, device=device, dtype=torch.float32)
+            dt_step = t_grid[1] - t_grid[0]  # = 1/num_inference_steps
+
+            dt_base_val = int(math.log2(num_inference_steps)) + 1
+            distance = torch.full((B,), dt_base_val, device=device, dtype=torch.int64)
+
+            with self.progress_bar(total=num_inference_steps) as progress_bar:
+                for i in range(num_inference_steps):
+                    t_i = t_grid[i]
+                    t_ = t_i.expand(B).view(B, 1, 1, 1, 1).clamp(1/(1+700), 1/(1+0.02))
+
+                    v_pred_output = self.predict_v(t_, latents,
+                                                   image_latents, image_embeddings,
+                                                   added_time_ids, num_his,
+                                                   history=history, cond_wrist=cond_wrist, distance=distance,
+                                                   frame_level_cond=frame_level_cond,
+                                                   do_classifier_free_guidance=do_classifier_free_guidance)
+                    v_pred = v_pred_output["pred_vel"]
+                    latents = latents + dt_step * v_pred
+                    progress_bar.update()
+
+        return {"frames": latents}

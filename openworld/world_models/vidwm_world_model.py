@@ -81,8 +81,26 @@ class VidWMConfig:
 
     # Whether to decode latents to RGB (set False to stay in latent space)
     decode_to_rgb: bool = True
-    view_order: tuple[str, ...] = ("exterior_left", "exterior_right", "wrist")
+    view_order: tuple[str, ...] = ("exterior_right", "exterior_left", "wrist")
     action_downsample: int = 1
+
+    # History indices – selects which entries from the growing per-rollout
+    # history buffer are fed to the model as context.  len == num_history.
+    # Negative indices count from the end of the buffer (most recent).
+    # Default uses dense recent frames (last 6 rollouts), which works well
+    # for typical eval horizons (10-20 rollouts).  For very long rollouts
+    # (30+), consider sparser indices like (0, 0, -12, -9, -6, -3) to
+    # capture longer temporal context.
+    history_idx: tuple[int, ...] = (0, 0, -12, -9, -6, -3)
+
+    # Ground-truth history mode – when True, the model expects
+    # ``gt_latents`` (B, T, 4, H, W) and ``gt_actions`` (B, T, action_dim)
+    # in the state dict.  Both history latents and action embeddings are
+    # built from these GT tensors instead of from model predictions,
+    # allowing controlled quality comparisons.
+    # ``gt_actions`` should already be normalized to [-1, 1] (matching the
+    # svd_ac_video_model dataset convention).
+    use_gt_history: bool = False
 
     # Action normalization – DROID dataset percentile statistics used during
     # Ctrl-World training.  Actions are normalized to [-1, 1] via:
@@ -283,43 +301,57 @@ class VidWMWorldModel(WorldModel):
 
         cfg = self.config
         device = self._device
-
-        # ---- unpack state ----
-        current_latent, history_latents = self._unpack_state(state, observation)
-        B = current_latent.shape[0]
-
-        # ---- prepare actions ----
-        state_history = None
-        if isinstance(state, dict):
-            state_history = state.get("_robot_state_history")
-        actions = self._prepare_actions(action_chunk, B, state_history=state_history)
-        self._debug_log_rollout_inputs(
-            state=state,
-            observation=observation,
-            action_chunk=action_chunk,
-            prepared_actions=actions,
-            instruction=instruction,
+        gt_mode = (
+            cfg.use_gt_history
+            and isinstance(state, dict)
+            and state.get("gt_latents") is not None
         )
 
-        # ---- encode actions ----
-        with torch.no_grad():
-            action_embeds = self.action_encoder(
-                actions,
-                texts=[instruction] if instruction else None,
-                text_tokenizer=self.tokenizer,
-                text_encoder=self.text_encoder,
-                frame_level_cond=cfg.frame_level_cond,
-                text_encoder_is_vit=self.text_encoder_is_vit,
-                device=device,
+        # ---- unpack state (growing history buffer + sparse selection) ----
+        current_latent, history_latents, history_buffer = self._unpack_state(state, observation)
+        B = current_latent.shape[0]
+
+        if gt_mode and state.get("gt_actions") is not None:
+            # ---- GT action path: matches svd_ac_video_model exactly ----
+            action_combined = self._prepare_action_combined_gt(state, instruction)
+            # state_buffer / last_future_state not needed in GT mode
+            state_buffer = state.get("_state_buffer", [])
+            last_future_state = np.zeros(cfg.action_dim, dtype=np.float32)
+        else:
+            # ---- normal action path ----
+            # ---- get / init per-rollout state buffer ----
+            state_buffer = self._get_or_init_state_buffer(state, action_chunk)
+
+            # ---- prepare actions (sparse history sampling via history_idx) ----
+            actions, last_future_state = self._prepare_actions(action_chunk, B, state_buffer=state_buffer)
+            self._debug_log_rollout_inputs(
+                state=state,
+                observation=observation,
+                action_chunk=action_chunk,
+                prepared_actions=actions,
+                instruction=instruction,
             )
-            action_latent = action_embeds["action_with_text_embeds"]  # (B, T, 1024)
 
-        # ---- split action embeddings into history + future ----
-        his_action = action_latent[:, :cfg.num_history]
-        future_action = action_latent[:, cfg.num_history:]
+            # ---- encode actions ----
+            with torch.no_grad():
+                action_embeds = self.action_encoder(
+                    actions,
+                    texts=[instruction] if instruction else None,
+                    text_tokenizer=self.tokenizer,
+                    text_encoder=self.text_encoder,
+                    frame_level_cond=cfg.frame_level_cond,
+                    text_encoder_is_vit=self.text_encoder_is_vit,
+                    device=device,
+                )
+                action_latent = action_embeds["action_with_text_embeds"]  # (B, T, 1024)
 
-        # ---- build combined action embedding ----
-        action_combined = torch.cat([his_action, future_action], dim=1)
+            # ---- split action embeddings into history + future ----
+            his_action = action_latent[:, :cfg.num_history]
+            future_action = action_latent[:, cfg.num_history:]
+
+            # ---- build combined action embedding ----
+            action_combined = torch.cat([his_action, future_action], dim=1)
+            action_combined = action_combined.to(self._dtype)
 
         # ---- call the diffusion pipeline ----
         with torch.no_grad():
@@ -343,20 +375,35 @@ class VidWMWorldModel(WorldModel):
                 flow_map_loss_type=cfg.flow_map_loss_type,
             )
 
-        # pred_latents shape: (B, num_frames, 4, 72, 40)
-
         # ---- build next state ----
-        # Update history: drop oldest frames, append new predictions (minus last)
-        # The last predicted frame becomes the new current_latent
         new_current = pred_latents[:, -1]  # (B, 4, 72, 40)
-        new_history = self._update_history(
-            history_latents, pred_latents[:, :-1], cfg.num_history,
-        )
+        state_buffer.append(last_future_state)
 
-        next_state = {
-            "current_latent": new_current,
-            "history_latents": new_history,
-        }
+        if gt_mode:
+            # GT-history mode: advance cursor by (num_frames - 1) to match
+            # the reference convention (last predicted frame = next current).
+            gt_cursor = state.get("_gt_cursor", 0)
+            gt_lat = state["gt_latents"]
+            T_dim = gt_lat.shape[1] if gt_lat.dim() == 5 else gt_lat.shape[0]
+            next_gt_cursor = min(gt_cursor + cfg.num_frames - 1, T_dim - 1)
+            next_state = {
+                "gt_latents": gt_lat,
+                "_gt_cursor": next_gt_cursor,
+                "_state_buffer": state_buffer,
+            }
+            # Carry GT actions and cached embeddings forward
+            if state.get("gt_actions") is not None:
+                next_state["gt_actions"] = state["gt_actions"]
+            if state.get("_gt_action_embeds") is not None:
+                next_state["_gt_action_embeds"] = state["_gt_action_embeds"]
+        else:
+            # Normal mode: append last predicted frame to growing history buffer.
+            history_buffer.append(new_current.detach())
+            next_state = {
+                "current_latent": new_current,
+                "_history_buffer": history_buffer,
+                "_state_buffer": state_buffer,
+            }
 
         # ---- decode frames if requested ----
         if cfg.decode_to_rgb:
@@ -382,61 +429,238 @@ class VidWMWorldModel(WorldModel):
         self.action_encoder.to(self._device)
         self.text_encoder.to(self._device)
 
-    def _unpack_state(self, state: Any, observation: Any) -> tuple:
-        """Unpack and validate state dict, returning (current_latent, history_latents)."""
+    def _unpack_state(self, state: Any, observation: Any = None) -> tuple:
+        """Unpack state, returning (current_latent, history_latents, history_buffer).
+
+        The history buffer is a growing list of per-rollout latent frames.
+        ``history_latents`` is built by sparse-sampling the buffer using
+        ``config.history_idx``, matching the Ctrl-World training convention.
+
+        When ``config.use_gt_history`` is True and ``state["gt_latents"]`` is
+        available, the history (and current latent) are drawn from the GT
+        trajectory instead of from model predictions.  A ``_gt_cursor`` in the
+        state tracks how far along the trajectory we are.
+        """
         cfg = self.config
         device = self._device
 
+        # ---- GT-history mode ----
+        if cfg.use_gt_history and isinstance(state, dict) and state.get("gt_latents") is not None:
+            return self._unpack_state_gt(state)
+
+        # ---- normal (autoregressive) mode ----
+        history_buffer = None
         if isinstance(state, dict):
             current_latent = state.get("current_latent")
-            history_latents = state.get("history_latents", None)
+            history_buffer = state.get("_history_buffer")
         else:
             current_latent = None
-            history_latents = None
 
         if current_latent is None:
             current_latent = self._bootstrap_current_latent(observation)
-            history_latents = None
+            history_buffer = None
 
         # Ensure batch dimension
         if current_latent.dim() == 3:
             current_latent = current_latent.unsqueeze(0)
         current_latent = current_latent.to(device=device, dtype=self._dtype)
-        B = current_latent.shape[0]
 
-        # Build or validate history
-        if history_latents is None:
-            # Broadcast current frame as history
-            history_latents = current_latent.unsqueeze(1).expand(
-                B, cfg.num_history, -1, -1, -1
-            ).contiguous()
+        # Initialize buffer with copies of current frame if needed.
+        # Size must be large enough so that all negative indices in
+        # history_idx are valid from the very first rollout.
+        if history_buffer is None:
+            neg_indices = [abs(idx) for idx in cfg.history_idx if idx < 0]
+            init_size = max(neg_indices) if neg_indices else len(cfg.history_idx)
+            init_size = max(init_size, len(cfg.history_idx))
+            history_buffer = [current_latent.clone() for _ in range(init_size)]
+
+        # Build sparse history_latents using history_idx
+        history_latents = torch.stack(
+            [history_buffer[idx] for idx in cfg.history_idx], dim=1,
+        )  # (B, num_history, 4, H, W)
+        history_latents = history_latents.to(device=device, dtype=self._dtype)
+
+        return current_latent, history_latents, history_buffer
+
+    def _unpack_state_gt(self, state: dict) -> tuple:
+        """Build current_latent and history from ground-truth latents.
+
+        ``state["gt_latents"]`` should be a ``(B, T, 4, H, W)`` tensor
+        covering the full trajectory.  ``state["_gt_cursor"]`` tracks
+        the current position; it is advanced by ``num_frames - 1`` each
+        rollout (matching the svd_ac_video_model convention of reusing
+        the last predicted frame as the next current frame).
+
+        History is built by padding with copies of frame 0 and then
+        appending all GT frames up to the cursor, then selecting the
+        last ``num_history`` entries — mirroring the dense sequential
+        history used in the reference VideoPredictor.
+        """
+        cfg = self.config
+        device = self._device
+
+        gt_latents = state["gt_latents"]  # (B, T, 4, H, W)
+        if gt_latents.dim() == 4:
+            gt_latents = gt_latents.unsqueeze(0)
+        gt_latents = gt_latents.to(device=device, dtype=self._dtype)
+
+        cursor = state.get("_gt_cursor", 0)
+
+        # Current frame is the GT frame at cursor position
+        current_latent = gt_latents[:, cursor]  # (B, 4, H, W)
+
+        # Build a dense history from all GT frames up to (not including) cursor,
+        # padded at the front with copies of frame 0.
+        gt_frames_so_far = [gt_latents[:, i] for i in range(cursor + 1)]
+        pad_size = max(cfg.num_history - len(gt_frames_so_far), 0)
+        padded = [gt_latents[:, 0].clone() for _ in range(pad_size)] + gt_frames_so_far
+        # Select the last num_history entries (dense sequential, like his_skip=1)
+        history_latents = torch.stack(padded[-cfg.num_history:], dim=1)
+
+        # Return an empty list as history_buffer — it won't be used in GT mode
+        # since we rebuild from gt_latents each time.
+        return current_latent, history_latents, []
+
+    def _prepare_action_combined_gt(
+        self,
+        state: dict,
+        instruction: Optional[str],
+    ) -> torch.Tensor:
+        """Build the (B, num_history + num_frames, 1024) action embedding from
+        GT actions, matching the svd_ac_video_model VideoPredictor logic.
+
+        The reference implementation:
+        1. Encodes ALL trajectory actions at once through the action encoder.
+        2. Splits into history (first ``num_history``) and future portions.
+        3. Pads history action embeddings with copies of the first future
+           action embedding.
+        4. Per rollout, selects history embeddings via ``his_id`` and future
+           embeddings via ``action_idx`` based on the rollout index.
+
+        ``state["gt_actions"]`` must be a **(B, T, action_dim)** tensor of
+        already-normalised actions ([-1, 1]).  The encoded embeddings are
+        cached in ``state["_gt_action_embeds"]`` so encoding only happens once.
+        """
+        cfg = self.config
+        device = self._device
+
+        gt_actions = state["gt_actions"]  # (B, T, action_dim), already normalised
+        if not isinstance(gt_actions, torch.Tensor):
+            gt_actions = torch.as_tensor(gt_actions, dtype=self._dtype, device=device)
+        if gt_actions.dim() == 2:
+            gt_actions = gt_actions.unsqueeze(0)
+        gt_actions = gt_actions.to(device=device, dtype=self._dtype)
+
+        # ---- encode once and cache ----
+        if state.get("_gt_action_embeds") is None:
+            with torch.no_grad():
+                embeds = self.action_encoder(
+                    gt_actions,
+                    texts=[instruction] if instruction else None,
+                    text_tokenizer=self.tokenizer,
+                    text_encoder=self.text_encoder,
+                    frame_level_cond=cfg.frame_level_cond,
+                    text_encoder_is_vit=self.text_encoder_is_vit,
+                    device=device,
+                )
+            # Cache on the state dict so subsequent rollouts reuse it.
+            state["_gt_action_embeds"] = embeds["action_with_text_embeds"]  # (B, T, 1024)
+
+        all_embeds = state["_gt_action_embeds"]  # (B, T, 1024)
+
+        # ---- split into history / future (same as svd_ac_video_model) ----
+        # The first num_history embeddings correspond to history-frame timestamps;
+        # the rest are future actions.
+        future_embeds = all_embeds[:, cfg.num_history:]  # (B, T_future, 1024)
+
+        # ---- determine rollout index from cursor ----
+        cursor = state.get("_gt_cursor", 0)
+        # rollout_idx: how many rollouts have been done (cursor advances by
+        # num_frames-1 per rollout, starting from 0).
+        rollout_idx = cursor // max(cfg.num_frames - 1, 1) if cursor > 0 else 0
+
+        # ---- history action embeddings ----
+        # Pad with copies of the first future embedding, then append all
+        # future embeddings consumed so far.
+        num_consumed = rollout_idx * (cfg.num_frames - 1)
+        his_pad = future_embeds[:, 0:1].expand(-1, cfg.num_history, -1)  # (B, num_history, 1024)
+        if num_consumed > 0:
+            consumed = future_embeds[:, :num_consumed]  # (B, num_consumed, 1024)
+            his_stack = torch.cat([his_pad, consumed], dim=1)  # (B, num_history + num_consumed, 1024)
         else:
-            if history_latents.dim() == 3:
-                history_latents = history_latents.unsqueeze(0)
-            history_latents = history_latents.to(device=device, dtype=self._dtype)
+            his_stack = his_pad
 
-            # Pad if not enough history
-            if history_latents.shape[1] < cfg.num_history:
-                pad_count = cfg.num_history - history_latents.shape[1]
-                pad = current_latent.unsqueeze(1).expand(B, pad_count, -1, -1, -1)
-                history_latents = torch.cat([pad, history_latents], dim=1)
+        # Select the last num_history entries (dense sequential, his_skip=1)
+        his_action = his_stack[:, -cfg.num_history:]  # (B, num_history, 1024)
 
-        return current_latent, history_latents
+        # ---- future action embeddings for this rollout ----
+        action_start = rollout_idx * (cfg.num_frames - 1)
+        action_end = action_start + cfg.num_frames
+        T_future = future_embeds.shape[1]
+        action_idx = np.arange(action_start, action_end)
+        action_idx = np.clip(action_idx, 0, T_future - 1)
+        future_action = future_embeds[:, action_idx]  # (B, num_frames, 1024)
+
+        return torch.cat([his_action, future_action], dim=1)  # (B, num_history + num_frames, 1024)
 
     def _bootstrap_current_latent(self, observation: Any) -> torch.Tensor:
-        """Create an initial latent state from raw RGB observations."""
-        stacked_rgb = self._stack_observation_views(observation)
-        rgb_tensor = (
-            torch.from_numpy(stacked_rgb)
-            .permute(2, 0, 1)
-            .unsqueeze(0)
-            .float()
-            / 255.0 * 2.0 - 1.0  # normalize to [-1, 1] as expected by the VAE
-        )
+        """Create an initial latent state from raw RGB observations.
 
+        Each camera view is VAE-encoded independently and the resulting
+        latents are concatenated along the spatial height dimension. 
+        """
+        view_frames = self._get_observation_view_frames(observation)
+
+        view_latents = []
         with torch.no_grad():
-            latent = self.encode_image(rgb_tensor)
-        return latent
+            for frame in view_frames:
+                rgb_tensor = (
+                    torch.from_numpy(frame)
+                    .permute(2, 0, 1)
+                    .unsqueeze(0)
+                    .float()
+                    / 255.0 * 2.0 - 1.0
+                )
+                view_latents.append(self.encode_image(rgb_tensor))
+
+        # Concatenate along the spatial height dim: 3 × (B, 4, 24, 40) → (B, 4, 72, 40)
+        return torch.cat(view_latents, dim=2)
+
+    def _get_observation_view_frames(self, observation: Any) -> List[np.ndarray]:
+        """Return a list of per-view RGB frames from the observation.
+
+        Each element is an (H, W, 3) uint8 numpy array for one camera view,
+        ordered according to ``config.view_order``.
+        """
+        cfg = self.config
+
+        if isinstance(observation, dict):
+            views = observation.get("views", observation)
+            if isinstance(views, dict):
+                frames = []
+                for view_name in cfg.view_order:
+                    if view_name not in views:
+                        raise ValueError(
+                            f"Observation is missing required view '{view_name}'. "
+                            f"Available views: {list(views)}"
+                        )
+                    frames.append(self._load_rgb_frame(views[view_name]))
+                return frames
+
+        # Single image – assume views are stacked vertically.
+        frame = self._load_rgb_frame(observation)
+        if frame.ndim != 3 or frame.shape[-1] != 3:
+            raise ValueError(
+                "VidWM bootstrap expects an RGB frame or a dict of named RGB views."
+            )
+        n_views = len(cfg.view_order)
+        if frame.shape[0] % n_views != 0:
+            raise ValueError(
+                f"Stacked image height {frame.shape[0]} is not divisible by "
+                f"{n_views} views."
+            )
+        split_h = frame.shape[0] // n_views
+        return [frame[i * split_h : (i + 1) * split_h] for i in range(n_views)]
 
     def _stack_observation_views(self, observation: Any) -> np.ndarray:
         cfg = self.config
@@ -474,9 +698,19 @@ class VidWMWorldModel(WorldModel):
         self,
         action_chunk: Any,
         batch_size: int,
-        state_history: Any = None,
-    ) -> torch.Tensor:
-        """Convert action chunk to tensor (B, num_history + num_frames, action_dim)."""
+        state_buffer: Optional[List] = None,
+    ) -> tuple:
+        """Convert action chunk to tensor (B, num_history + num_frames, action_dim).
+
+        History actions are sampled from *state_buffer* using the same sparse
+        ``config.history_idx`` that selects history latent frames, keeping the
+        two modalities temporally aligned.
+
+        Returns:
+            (action_tensor, last_future_state) where *last_future_state* is the
+            raw (un-normalised) action/state at the end of the prediction
+            horizon, suitable for appending to the state buffer.
+        """
         cfg = self.config
         stride = max(int(cfg.action_downsample), 1)
 
@@ -487,26 +721,25 @@ class VidWMWorldModel(WorldModel):
         if future_actions.shape[0] > cfg.num_frames:
             future_actions = future_actions[: cfg.num_frames]
 
-        if state_history is None:
-            history_actions = np.empty((0, future_actions.shape[-1]), dtype=np.float32)
-        else:
-            history_actions = np.asarray(state_history, dtype=np.float32)
-            if history_actions.size == 0:
-                history_actions = np.empty((0, future_actions.shape[-1]), dtype=np.float32)
-            elif history_actions.ndim == 1:
-                history_actions = history_actions.reshape(1, -1)
-        if history_actions.size > 0:
-            history_actions = history_actions[::stride]
-            history_actions = history_actions[-cfg.num_history :]
-
         if future_actions.shape[0] == 0:
             raise ValueError("VidWM requires at least one future action.")
 
-        if history_actions.shape[0] < cfg.num_history:
-            pad_count = cfg.num_history - history_actions.shape[0]
-            history_pad = np.repeat(future_actions[:1], pad_count, axis=0)
-            history_actions = np.concatenate([history_pad, history_actions], axis=0)
+        # Save the last future state before any padding/normalisation – this
+        # corresponds to the state at the end of the prediction horizon
+        # (equivalent to cartesian_pose[pred_step-1] in the reference).
+        last_future_state = future_actions[-1].copy()
 
+        # Sample history actions using the same sparse history_idx as latents
+        if state_buffer is not None and len(state_buffer) > 0:
+            history_actions = np.stack(
+                [state_buffer[idx] for idx in cfg.history_idx], axis=0,
+            )  # (num_history, action_dim)
+        else:
+            history_actions = np.repeat(
+                future_actions[:1], len(cfg.history_idx), axis=0,
+            )
+
+        # Pad future if needed
         if future_actions.shape[0] < cfg.num_frames:
             future_pad = np.repeat(future_actions[-1:], cfg.num_frames - future_actions.shape[0], axis=0)
             future_actions = np.concatenate([future_actions, future_pad], axis=0)
@@ -529,51 +762,103 @@ class VidWMWorldModel(WorldModel):
         if action_tensor.shape[0] == 1 and batch_size > 1:
             action_tensor = action_tensor.expand(batch_size, -1, -1)
 
-        return action_tensor
+        return action_tensor, last_future_state
 
-    def _update_history(
+    def _get_or_init_state_buffer(
         self,
-        old_history: torch.Tensor,
-        new_frames: torch.Tensor,
-        num_history: int,
-    ) -> torch.Tensor:
-        """Append new predicted frames to history, keeping only num_history frames."""
-        combined = torch.cat([old_history, new_frames], dim=1)
-        return combined[:, -num_history:]
+        state: Any,
+        action_chunk: Any,
+    ) -> List[np.ndarray]:
+        """Return the per-rollout state buffer, initialising if needed.
+
+        The state buffer parallels the latent history buffer: one entry per
+        rollout, indexed with the same ``history_idx``.  It is initialised
+        with copies of the current robot state (or the first action if no
+        robot state is available).
+        """
+        cfg = self.config
+
+        if isinstance(state, dict) and state.get("_state_buffer") is not None:
+            return list(state["_state_buffer"])
+
+        # Determine initial state value.  Prefer the pre-advancement initial
+        # robot state passed by the env (``_initial_robot_state``), since by
+        # the time rollout() is called ``robot["state"]`` has been advanced
+        # through all policy actions and no longer reflects the true initial
+        # pose.
+        initial_state = None
+        if isinstance(state, dict):
+            if state.get("_initial_robot_state") is not None:
+                initial_state = np.asarray(state["_initial_robot_state"], dtype=np.float32).reshape(-1)
+            elif isinstance(state.get("robot"), dict) and "state" in state["robot"]:
+                initial_state = np.asarray(state["robot"]["state"], dtype=np.float32).reshape(-1)
+        if initial_state is None:
+            raw = np.asarray(action_chunk, dtype=np.float32)
+            if raw.ndim == 1:
+                raw = raw.reshape(1, -1)
+            initial_state = raw[0]
+
+        neg_indices = [abs(idx) for idx in cfg.history_idx if idx < 0]
+        init_size = max(neg_indices) if neg_indices else len(cfg.history_idx)
+        init_size = max(init_size, len(cfg.history_idx))
+        return [initial_state.copy() for _ in range(init_size)]
 
     def _decode_latents(self, latents: torch.Tensor) -> List[np.ndarray]:
         """Decode latent tensor to a list of RGB uint8 numpy frames.
 
         Args:
-            latents: (B, T, 4, 72, 40) predicted latent frames.
+            latents: (B, T, 4, 72, 40) predicted latent frames where the
+                height dimension contains multiple camera views stacked
+                vertically (e.g. 72 = 3 views × 24).
 
         Returns:
-            List of (H, W, 3) uint8 numpy arrays, one per frame.
+            List of (H_stacked, W, 3) uint8 numpy arrays, one per frame.
             Frames from all batches are flattened into the list.
         """
-        from vidwm.video_models.utils.svd_model_utils import svd_tensor2vid
+        import einops
 
-        B, T = latents.shape[:2]
+        B, T, C, H_stacked, W = latents.shape
+        n_views = len(self.config.view_order)
+        H_view = H_stacked // n_views
+        vae = self.pipeline.vae
+        vae_dtype = vae.dtype
         cfg = self.config
 
-        # The pipeline's decode_latents expects (B, T, C, H, W)
-        latents_for_decode = latents.to(self.pipeline.vae.dtype)
-        decoded = self.pipeline.decode_latents(
-            latents_for_decode, T, cfg.decode_chunk_size,
+        # Split views BEFORE decoding to avoid cross-view convolution bleed.
+        # (B, T, C, n_views*H_view, W) → (B*n_views, T, C, H_view, W)
+        latents = einops.rearrange(
+            latents, "b t c (m h) w -> (b m) t c h w", m=n_views,
         )
-        # decoded shape: (B, C, T, H, W) float32
 
-        # Convert to video frames using the SVD utility
-        frames_list = svd_tensor2vid(decoded, self.pipeline.video_processor, output_type="np")
+        # Flatten batch and time for chunked VAE decode.
+        x = latents.reshape(-1, C, H_view, W)  # (B*n_views*T, C, H_view, W)
 
-        # frames_list is a list of length B, each element is a list of T frames
-        # Flatten to a single list of frames (from batch 0)
+        decoded_chunks = []
+        for i in range(0, x.shape[0], cfg.decode_chunk_size):
+            # Divide by scaling_factor in float32 BEFORE casting to vae dtype.
+            chunk = x[i : i + cfg.decode_chunk_size] / vae.config.scaling_factor
+            chunk = chunk.to(vae_dtype)
+            decode_kwargs = {}
+            if hasattr(vae, "decoder") and hasattr(vae.decoder, "conv_in"):
+                decode_kwargs["num_frames"] = chunk.shape[0]
+            decoded_chunks.append(vae.decode(chunk, **decode_kwargs).sample)
+        decoded = torch.cat(decoded_chunks, dim=0)  # (B*n_views*T, 3, H_px, W_px)
+
+        # Reshape back to per-view, reassemble stacked image.
+        # (B*n_views*T, 3, H_px, W_px) → (B, T, 3, n_views*H_px, W_px)
+        decoded = einops.rearrange(
+            decoded, "(b m t) c h w -> b t c (m h) w", b=B, m=n_views, t=T,
+        )
+
+        # Convert to uint8 numpy frames.
+        decoded = ((decoded / 2.0 + 0.5).clamp(0, 1) * 255)
+        decoded = decoded.detach().float().cpu().numpy()
+
         all_frames = []
-        for batch_frames in frames_list:
-            for frame in batch_frames:
-                # frame is (H, W, 3) float in [0, 1] or uint8
-                if frame.dtype != np.uint8:
-                    frame = (np.clip(frame, 0, 1) * 255).astype(np.uint8)
+        for b in range(B):
+            for t in range(T):
+                # (3, H_stacked_px, W_px) → (H_stacked_px, W_px, 3)
+                frame = decoded[b, t].transpose(1, 2, 0).astype(np.uint8)
                 all_frames.append(frame)
 
         return all_frames
@@ -612,8 +897,10 @@ class VidWMWorldModel(WorldModel):
                     state_summary += f" state_rep={state['robot']['state_representation']}"
             if "current_latent" in state:
                 state_summary += f" current_latent={tuple(state['current_latent'].shape)}"
-            if "history_latents" in state:
-                state_summary += f" history_latents={tuple(state['history_latents'].shape)}"
+            if "_history_buffer" in state:
+                state_summary += f" history_buffer_len={len(state['_history_buffer'])}"
+            if "_state_buffer" in state:
+                state_summary += f" state_buffer_len={len(state['_state_buffer'])}"
 
         action_np = prepared_actions.detach().float().cpu().numpy()
         logger.info(

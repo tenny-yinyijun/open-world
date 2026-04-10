@@ -18,9 +18,11 @@ outputs/
 logs/
 videos/
 
+bash_scripts/
 checkpoints/
 data/
 external/*
 !external/download_models.sh
 tests/
 tmp_*
+slurm_outputs/

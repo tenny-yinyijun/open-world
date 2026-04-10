@@ -4996,10 +4996,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-dev = [
-    { name = "imageio", extra = ["ffmpeg"] },
-    { name = "pytest" },
-]
 policy-dp = [
     { name = "av", version = "12.3.0", source = { registry = "https://pypi.org/simple" } },
     { name = "gdown" },
@@ -5037,6 +5033,7 @@ policy-openpi = [
     { name = "optax" },
     { name = "orbax-checkpoint" },
     { name = "polars" },
+    { name = "pytest" },
     { name = "rich" },
     { name = "safetensors" },
     { name = "sentencepiece" },
@@ -5084,7 +5081,6 @@ requires-dist = [
     { name = "imageio", marker = "extra == 'policy-dp'", specifier = ">=2.35.1" },
     { name = "imageio", marker = "extra == 'policy-openpi'", specifier = ">=2.36.1" },
     { name = "imageio", extras = ["ffmpeg"] },
-    { name = "imageio", extras = ["ffmpeg"], marker = "extra == 'dev'" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'policy-openpi'", specifier = "==0.5.3" },
     { name = "jaxtyping", marker = "extra == 'policy-openpi'", specifier = "==0.2.36" },
     { name = "joblib" },
@@ -5112,7 +5108,7 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'reward-topreward'", specifier = ">=9.0.0" },
     { name = "polars", marker = "extra == 'policy-openpi'", specifier = ">=1.30.0" },
     { name = "pretty-errors", marker = "extra == 'policy-dp'", specifier = "==1.2.25" },
-    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'policy-openpi'" },
     { name = "pytorch-msssim" },
     { name = "pyyaml" },
     { name = "requests", marker = "extra == 'reward-topreward'", specifier = ">=2.32.4" },
@@ -5137,7 +5133,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'policy-dp'", specifier = ">=13.0" },
     { name = "websockets", marker = "extra == 'policy-openpi'", specifier = ">=13.0" },
 ]
-provides-extras = ["policy-openpi", "policy-dp", "reward-robometer", "reward-topreward", "dev"]
+provides-extras = ["policy-openpi", "policy-dp", "reward-robometer", "reward-topreward"]
 
 [[package]]
 name = "opt-einsum"
@@ -6266,7 +6262,7 @@ name = "pytest"
 version = "9.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-openworld-policy-dp' and extra == 'extra-9-openworld-policy-openpi') or (extra == 'extra-9-openworld-reward-robometer' and extra == 'extra-9-openworld-reward-topreward')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-openworld-reward-robometer' and extra == 'extra-9-openworld-reward-topreward')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },

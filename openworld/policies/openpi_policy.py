@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 
 from openworld.policies.base_policy import Policy
-from openworld.policies.openpi_action_adapter import OpenPIActionAdapter
+from openworld.policies.openpi_action_adapter import AdaptedActionChunk, OpenPIActionAdapter
 from openworld.policies.openpi_loader import (
     DEFAULT_OPENPI_REPO,
     ensure_openpi_repo_on_path,
@@ -32,9 +32,12 @@ class OpenPIPolicy(Policy):
         repo_path: Optional[str] = str(DEFAULT_OPENPI_REPO),
         default_prompt: Optional[str] = None,
         pytorch_device: Optional[str] = None,
-        exterior_view_name: str = "exterior_right",
+        exterior_view_name: str = "exterior_left",
         wrist_view_name: str = "wrist",
         stacked_view_order: Optional[list[str]] = None,
+        intermediate_resize_height: Optional[int] = None,
+        policy_skip_step: int = 1,
+        num_action_steps: Optional[int] = None,
         resize_height: int = 224,
         resize_width: int = 224,
         joint_position_dim: int = 7,
@@ -54,7 +57,7 @@ class OpenPIPolicy(Policy):
         self.exterior_view_name = exterior_view_name
         self.wrist_view_name = wrist_view_name
         self.stacked_view_order = list(
-            stacked_view_order or ["exterior_left", "exterior_right", "wrist"]
+            stacked_view_order or ["exterior_right", "exterior_left", "wrist"]
         )
         self.resize_height = resize_height
         self.resize_width = resize_width
@@ -63,6 +66,9 @@ class OpenPIPolicy(Policy):
         self.action_indices = list(action_indices) if action_indices is not None else None
         self.action_adapter_checkpoint_path = action_adapter_checkpoint_path
         self.action_adapter_gripper_max = action_adapter_gripper_max
+        self.intermediate_resize_height = intermediate_resize_height
+        self.policy_skip_step = policy_skip_step
+        self.num_action_steps = num_action_steps
         self.debug = debug
         self.debug_log_limit = debug_log_limit
 
@@ -244,6 +250,17 @@ class OpenPIPolicy(Policy):
         joint_position, gripper_position = self._extract_joint_state(state)
         adapted = adapter.adapt(joint_position, gripper_position, predicted)
 
+        # Subsample to match world model temporal resolution
+        if self.policy_skip_step > 1:
+            indices = list(range(0, adapted.env_actions.shape[0], self.policy_skip_step))
+            if self.num_action_steps is not None:
+                indices = indices[: self.num_action_steps]
+            adapted = AdaptedActionChunk(
+                env_actions=adapted.env_actions[indices],
+                joint_positions=adapted.joint_positions[indices],
+                gripper_positions=adapted.gripper_positions[indices],
+            )
+
         step_actions: list[dict[str, Any]] = []
         for index in range(adapted.env_actions.shape[0]):
             cartesian_action = adapted.env_actions[index]
@@ -317,6 +334,9 @@ class OpenPIPolicy(Policy):
         }
 
     def _prepare_image(self, image: np.ndarray) -> np.ndarray:
+        import torch
+        import torch.nn.functional as F
+
         rgb = np.asarray(image)
         if rgb.ndim != 3 or rgb.shape[-1] != 3:
             raise ValueError(f"Expected RGB image with shape (H, W, 3), got {rgb.shape}")
@@ -325,6 +345,15 @@ class OpenPIPolicy(Policy):
             rgb = np.clip(rgb * 255.0, 0, 255).astype(np.uint8)
         elif rgb.dtype != np.uint8:
             rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+
+        # Intermediate resize (e.g. 192x320 → 180x320) to match DROID policy preprocessing before pad-to-square
+        if self.intermediate_resize_height is not None:
+            h, w = rgb.shape[:2]
+            target_h = self.intermediate_resize_height
+            if h != target_h:
+                t = torch.from_numpy(rgb).permute(2, 0, 1).unsqueeze(0).float()
+                t = F.interpolate(t, size=(target_h, w), mode="bilinear", align_corners=False)
+                rgb = t.squeeze(0).permute(1, 2, 0).to(torch.uint8).numpy()
 
         pil_image = Image.fromarray(rgb)
         if pil_image.size != (self.resize_width, self.resize_height):
