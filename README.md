@@ -20,7 +20,7 @@ uv sync
 
 # Include extra dependencies for using different policies/reward models. Example:
 uv sync --extra policy-dp --extra reward-robometer
-uv sync --extra policy-openpi --extra reward-robometer
+GIT_LFS_SKIP_SMUDGE=1 uv sync --extra policy-openpi --extra reward-robometer 
 ```
 
 Finally, install required assets for the base world model:

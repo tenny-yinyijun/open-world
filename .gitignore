@@ -23,6 +23,7 @@ checkpoints/
 data/
 external/*
 !external/download_models.sh
+!external/predownload_ckpt.sh
 tests/
 tmp_*
 slurm_outputs/

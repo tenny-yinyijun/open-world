@@ -26,7 +26,7 @@ policy:
   # Use the JAX base checkpoint (not the PyTorch droid inference checkpoint).
   # The base checkpoint has orbax format with a params/ subdirectory.
   # LoRA adapters are initialized fresh on top of these base weights.
-  checkpoint_path: gs://openpi-assets/checkpoints/pi0_base
+  checkpoint_path: gs://openpi-assets/checkpoints/pi0_droid
   repo_path: external/openpi
 
   trainable_params:
