@@ -7,7 +7,7 @@ Follow instructions for the specific policy architecture you intend to use. Open
 | Policy | `policy.name` | uv extra | Checkpoint source | Action space |
 | --- | --- | --- | --- | --- |
 | [OpenPI (π₀ / π₀.₅)](#working-with-openpi) | `openpi` | `policy-openpi` | GCS bucket / your fine-tune | Joint velocity (7-D) |
-| [Diffusion Policy (DPPO)](#working-with-diffusion-policies) | `dp` | `policy-dp` | Your DPPO training run | Joint position + gripper (8-D) |
+| [Diffusion Policy (DPPO)](#working-with-dp) | `dp` | `policy-dp` | Your DPPO training run | Joint position + gripper (8-D) |
 | [MolmoAct2 (DROID)](#working-with-molmoact2) | `molmoact2` | `policy-molmoact2` | Hugging Face: `allenai/MolmoAct2-DROID` | Absolute joint position + gripper (8-D) |
 
 ## Working with OpenPI

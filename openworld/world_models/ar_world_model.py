@@ -120,8 +120,16 @@ class ARWanWorldModel(WorldModel):
         from openworld.autoregressive.distill.scheduler import FlowMatchScheduler
         from openworld.autoregressive.infer import load_action_stats
         from openworld.autoregressive.model import ARWorldModel
+        from openworld.autoregressive.models import (
+            resolve_checkpoint,
+            resolve_stats_root,
+        )
         from openworld.autoregressive.train_self_forcing import _load_config
 
+        # ``config_path`` / ``checkpoint_path`` / ``stats_root`` each accept a published
+        # model name (fetched from the Hub) or a local path. _load_config resolves the
+        # config itself; the other two resolve here.
+        checkpoint_path = resolve_checkpoint(checkpoint_path)
         cfg = _load_config(self.config_path)
         self.cfg = cfg
 
@@ -160,7 +168,9 @@ class ARWanWorldModel(WorldModel):
         )
         self.dec = VaeLatentDecoder(vae_dec, device=self._device, dtype=dec_dtype)
 
-        self._p01, self._p99 = load_action_stats(self.stats_root)
+        self._p01, self._p99 = load_action_stats(
+            resolve_stats_root(self.stats_root), cfg.stats_file
+        )
 
         # "Slow" student: a uniform many-step flow-matching schedule (the
         # student-init checkpoint is pre-distillation, so it needs many steps).

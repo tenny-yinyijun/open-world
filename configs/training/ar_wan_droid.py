@@ -62,7 +62,7 @@ def get_args() -> ARWMArgs:
         adam_betas=(0.0, 0.999),
         weight_decay=1e-2,
         max_grad_norm=10.0,
-        # fp32 master weights + bf16 autocast compute (see docs/AUTOREGRESSIVE.md "Dtype").
+        # fp32 master weights + bf16 autocast compute (see docs/world_model_training/autoregressive.md "Dtype").
         dtype=torch.float32,
         mixed_precision="bf16",
         train_batch_size=1,

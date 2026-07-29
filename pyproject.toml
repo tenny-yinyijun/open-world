@@ -181,4 +181,8 @@ lerobot = { git = "https://github.com/huggingface/lerobot", rev = "0cf864870cf29
 # present in this clone and would abort `uv sync`. See the `libero` extra above.
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# The tests live next to the package they cover; there is no top-level tests/ dir.
+testpaths = ["openworld"]
+markers = [
+    "hub: needs network + Hugging Face access (published checkpoints). Run with `pytest -m hub`.",
+]

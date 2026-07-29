@@ -25,5 +25,5 @@ class SVDBackbone(DiTBackbone):
             "SVD is a UNet+temporal-conv backbone and is not a block-causal DiT "
             "substrate; use backbone='wan_1_3b' or 'cosmos_predict2_2b'. The "
             "bidirectional SVD model remains available as "
-            "openworld.world_models.ctrl_world.CrtlWorld. See docs/AUTOREGRESSIVE.md."
+            "openworld.world_models.ctrl_world.CrtlWorld. See docs/world_model_training/autoregressive.md."
         )

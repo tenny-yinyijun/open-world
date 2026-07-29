@@ -5,7 +5,7 @@
 
 Note: Cosmos cached rollout (RoPE offset) is not yet wired — training uses the
 exact full-clip block-causal forward, but for *cached* autoregressive rollout
-prefer the Wan backbone. See docs/AUTOREGRESSIVE.md.
+prefer the Wan backbone. See docs/world_model_training/autoregressive.md.
 """
 
 from __future__ import annotations

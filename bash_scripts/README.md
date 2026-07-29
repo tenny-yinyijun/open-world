@@ -1,65 +1,91 @@
-# `bash_scripts/` — AR world-model launchers
+# `bash_scripts/` — cluster launchers
 
-All shell / sbatch wrappers for the autoregressive world-model pipeline, grouped
-by stage. The Python entrypoints they call live in `scripts/` and
-`openworld/autoregressive/`; these scripts are the thin, cluster-aware launchers.
+Thin, cluster-aware shell / sbatch wrappers. The Python entrypoints they call live in
+`scripts/` and `openworld/`; these files only set SBATCH resources and env.
 
-Submit from the **repo root** so relative paths (`scripts/…`, `configs/…`,
-`external/…`) resolve.
+Submit from the **repo root** so relative paths (`scripts/…`, `configs/…`, `external/…`)
+resolve. The SBATCH headers here are written for the Princeton `ailab` partition — edit
+`--partition` / `--account` / `--gres` for your cluster.
 
 ```
 bash_scripts/
   _env.sh                       shared env (sourced): offline HF, cd, slurm_outputs, node info
   ar_gpu.slurm                  generic GPU runner for ad-hoc commands
-  download_weights.sh           login-node weight download (NOT sbatch)
-  data_process/
-    preprocess_latents.sh       stage 1: raw DROID RGB+actions -> 16-ch Wan-VAE latents
-    validate_data.sh            stage 1 check: latents -> one real Wan forward
-  training/
-    train_wan.sh                stage 2: self-forcing / DMD distillation (Wan backbone)
-    train_cosmos.sh             stage 2: same, Cosmos-Predict2 backbone
-    smoke.sh                    unit tests + weightless smoke (REAL=1 adds real-weights smoke)
-  inference/
-    replay_wan.sh               stage 3: open-loop trajectory replay (Wan)
-    replay_cosmos.sh            stage 3: open-loop trajectory replay (Cosmos)
+  setup_eval_env.sh             one-time: submodules + venvs + checkpoint symlinks (login node)
+
+  # inference (the main use of this repo)
+  eval_wm.sbatch                policy evaluation: --wm {ctrlworld|ar|weaver}
+  eval_weaver_0617.sbatch       policy evaluation, weaver on the 0617 benchmark
+  interactive_ar.sh             teleoperation server (interactive node, not sbatch)
+  inference/replay_wan.sh       open-loop trajectory replay (Wan)
+  inference/replay_cosmos.sh    open-loop trajectory replay (Cosmos)
+  replay_tri_ar_job.sh          replay on the TRI bimanual latents
+
+  # training (mostly done in the TRI copy of open-world)
+  training/train_dmd_aligned.sh        self-forcing / DMD distillation, 8 GPU
+  training/train_dmd_aligned_vN_4gpu.sh  same, 4 GPU
 ```
 
 ## Typical run
 
 ```bash
-# 0. one-time, on the login node (has internet):
-bash bash_scripts/download_weights.sh                       # Wan transformer + VAE -> external/
-# Cosmos too, if needed:
-bash bash_scripts/download_weights.sh nvidia/Cosmos-Predict2-2B-Video2World
+# 0. one-time, on a node WITH internet (compute nodes are offline):
+bash bash_scripts/setup_eval_env.sh     # venvs + submodules
+bash external/download_models.sh        # backbone / VAE weights -> external/
 
-# 1. preprocess raw DROID -> latents (GPU):
-sbatch bash_scripts/data_process/preprocess_latents.sh
-sbatch bash_scripts/data_process/validate_data.sh
+# 1. policy evaluation (the world model downloads from the Hub on first use):
+sbatch bash_scripts/eval_wm.sbatch --wm ar
 
-# 2. distill:
-sbatch bash_scripts/training/train_wan.sh                   # or training/train_cosmos.sh
-
-# 3. replay a trained checkpoint:
+# 2. open-loop replay of a checkpoint against ground truth:
 CKPT=checkpoints/ar_wm/ar_wan_droid/checkpoint-50000.pt \
   sbatch bash_scripts/inference/replay_wan.sh
 
+# 3. teleoperation — needs an interactive GPU node, not sbatch:
+bash bash_scripts/interactive_ar.sh
+
 # monitor any job:
-squeue -j <jobid>   ·   tail -f slurm_outputs/<name>_<jobid>.out
+squeue -j <jobid>   ·   tail -f slurm_outputs/<name>/<jobid>.out
+```
+
+For a published model you can pass its **name** instead of paths — e.g.
+`CONFIG=wm_student_2view CKPT=wm_student_2view sbatch bash_scripts/inference/replay_wan.sh`
+(see [docs/MODELS.md](../docs/MODELS.md)).
+
+> **These launchers set `HF_HUB_OFFLINE=1`** (`_env.sh`), because compute nodes here have
+> no internet — so a model name cannot download *from inside a job*. Fetch it once from a
+> login node first; the job then reads it from the cache:
+> ```bash
+> hf download tennyyyin/open-world-ar-wm --include 'wm_student_2view/*'
+> ```
+> Keep `HF_HOME` the same in both places (`_env.sh` defaults it to
+> `external/.hf_cache`). Running the Python entrypoints directly on an
+> internet-connected machine needs none of this.
+
+Ad-hoc GPU commands go through the generic runner:
+
+```bash
+sbatch bash_scripts/ar_gpu.slurm .venv/bin/python -m pytest openworld/autoregressive/tests -q
 ```
 
 ## Overriding defaults
 
-Every launcher reads its knobs from environment variables (sensible defaults
-baked in) so you rarely edit the files. Set them inline before `sbatch`:
+Every launcher reads its knobs from environment variables (sensible defaults baked in)
+so you rarely edit the files. Set them inline before `sbatch`:
 
-| script | useful env vars (defaults) |
+| script | useful env vars / flags (defaults) |
 |---|---|
-| `data_process/preprocess_latents.sh` | `ROOT`, `OUT` (`data/droid_ar_latents`), `SPLITS` (`train val`), `NUM_VIEWS` (3), `LIMIT`, `VAE_DIR` |
-| `data_process/validate_data.sh` | `LATENT_ROOT` (`data/droid_ar_latents`) |
-| `training/train_wan.sh` / `train_cosmos.sh` | `CONFIG`, `ACCELERATE` |
-| `training/smoke.sh` | `REAL` (0) |
-| `inference/replay_wan.sh` / `replay_cosmos.sh` | `CKPT`, `CONFIG`, `LATENT_ROOT`, `SPLIT` (`val`), `HISTORY_BLOCKS` (1), `NUM_EPISODES`, `EPISODE_ID`, `MAX_BLOCKS`, `OUTPUT_DIR`, `SEPARATE` |
+| `eval_wm.sbatch` | flags: `--wm {ctrlworld\|ar\|weaver}` (required), `--config`, `--checkpoint`, `--dataset`, `--video-dir`, `--duration`; env: `PI_DIR`, `PORT` (8123) |
+| `inference/replay_wan.sh` · `replay_cosmos.sh` | `CKPT`, `CONFIG`, `LATENT_ROOT` (`data/droid_ar_latents`), `SPLIT` (`val`), `HISTORY_BLOCKS` (1), `NUM_EPISODES`, `EPISODE_ID`, `MAX_BLOCKS`, `OUTPUT_DIR`, `SEPARATE` |
+| `interactive_ar.sh` | positional: `[aligned\|adaln] [checkpoint.pt] [port]` (mode `aligned`, latest ckpt, port 8000) |
+| `training/train_dmd_aligned.sh` | `GPUS` (8, keep `--gres` in sync), `TORCHRUN`, `MASTER_PORT` |
 
-`PY` (default `.venv/bin/python`) and `HF_HOME` are honored by all of them via
-`_env.sh`. SBATCH resource directives (`--time`, `--mem`, `--gres`) are at the top
-of each file — edit there for longer runs or multi-GPU.
+`PY` (default `.venv/bin/python`) and `HF_HOME` are honored by all of them via `_env.sh`,
+which also forces offline HF loading. SBATCH resource directives (`--time`, `--mem`,
+`--gres`) are at the top of each file — edit there for longer runs or multi-GPU.
+
+Data preprocessing has no launcher of its own; call the entrypoints under `ar_gpu.slurm`:
+
+```bash
+sbatch bash_scripts/ar_gpu.slurm .venv/bin/python scripts/preprocess_ar_latents.py --help
+sbatch bash_scripts/ar_gpu.slurm .venv/bin/python scripts/validate_data.py --help
+```

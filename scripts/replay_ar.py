@@ -6,14 +6,28 @@ recorded action sequence open-loop, and lets the model autoregressively generate
 the rest of the clip. Decodes both the ground-truth and the predicted latents
 with the Wan VAE and writes them **side by side** (GT | PRED) for comparison.
 
+A **published** model name resolves both the weights and the inference config that
+was trained with them from the Hub (see ``openworld/autoregressive/models.py``);
+output then defaults to ``replay_out/<tag>/``::
+
+    python scripts/replay_ar.py \
+        --config wm_student_2view --checkpoint wm_student_2view \
+        --latent-root data/droid_ar_latents --split val
+
+For an unpublished checkpoint, pass a local config and weights path instead::
+
     sbatch bash_scripts/ar_gpu.slurm .venv/bin/python scripts/replay_ar.py \
-        --config configs/training/ar_wan_droid.py \
-        --checkpoint checkpoints/ar_wm/ar_wan_droid/checkpoint-50000.pt \
+        --config configs/inference/ar_wan_student_3view_bimanual.py \
+        --checkpoint checkpoints/ar_wm/wm_student_3view_bimanual.pt \
         --latent-root data/droid_ar_latents --split val \
         --output-dir checkpoints/ar_wm/ar_wan_droid/replay
 
 Without ``--checkpoint`` the (untrained) backbone weights are used — useful only
 to smoke-test the inference plumbing end to end, not for meaningful video.
+
+The sampling schedule follows the config's ``stage``: ``student_init`` gets the
+many-step preview schedule, ``self_forcing`` the few-step distilled list. Override
+with ``--force-many-step --denoising-steps 32``.
 
 Output:
     <output-dir>/<ep_id>.mp4          # side-by-side GT | PRED (decoded)
@@ -65,8 +79,12 @@ def write_video(frames: np.ndarray, path: Path, fps: int) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--config", required=True, help="ARWMArgs config (configs/training/ar_*.py).")
-    p.add_argument("--checkpoint", default=None, help="Trained student .pt (gen state_dict). Omit for untrained smoke.")
+    p.add_argument("--config", required=True,
+                   help="Published model name (e.g. wm_student_2view -- fetches its "
+                        "inference config from the Hub) or a local ARWMArgs config .py.")
+    p.add_argument("--checkpoint", default=None,
+                   help="Published model name (e.g. wm_student_2view) or a local trained "
+                        "student .pt (gen state_dict). Omit for untrained smoke.")
     p.add_argument("--latent-root", default=None, help="Override cfg.latent_root.")
     p.add_argument("--vae-dir", default="external/Wan2.1-T2V-1.3B-Diffusers", help="Wan VAE for decoding.")
     p.add_argument("--output-dir", default=None, help="Default: <checkpoint dir>/replay or replay_out/<tag>.")
@@ -101,6 +119,12 @@ def main() -> None:
     a = p.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # --config / --checkpoint accept a published model name (resolved from the Hub,
+    # where each checkpoint ships with its own inference config) or a local path.
+    from openworld.autoregressive.models import is_published_model, resolve_checkpoint
+
+    published_ckpt = is_published_model(a.checkpoint)
+    a.checkpoint = resolve_checkpoint(a.checkpoint) if a.checkpoint else a.checkpoint
     cfg = _load_config(a.config)
     if a.latent_root:
         cfg.latent_root = a.latent_root
@@ -121,9 +145,11 @@ def main() -> None:
         forced = " (forced on self_forcing)" if a.force_many_step and cfg.stage == "self_forcing" else ""
         print(f"[replay] preview sampler: {n}-step FlowMatchScheduler (warp=False){forced}, stage={cfg.stage}")
 
+    # Default output dir sits next to the checkpoint -- except for a published model,
+    # whose "checkpoint dir" is the read-only HF cache; write under the repo instead.
     out_root = (Path(a.output_dir) if a.output_dir
-                else (Path(a.checkpoint).resolve().parent / "replay" if a.checkpoint
-                      else Path("replay_out") / cfg.tag))
+                else (Path("replay_out") / cfg.tag if (published_ckpt or not a.checkpoint)
+                      else Path(a.checkpoint).resolve().parent / "replay"))
 
     # --- model ---
     print(f"[replay] building ARWorldModel ({cfg.backbone}) ...", flush=True)

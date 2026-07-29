@@ -15,7 +15,7 @@ end (used by the test suite and for CI):
 
 Data note: Wan/Cosmos consume 16-channel latents from their own VAE; the existing
 LIBERO latents are 4-channel SVD-VAE. Real runs need the dataset re-encoded with
-the backbone VAE (see docs/AUTOREGRESSIVE.md). The real-data branch below reuses
+the backbone VAE (see docs/world_model_training/autoregressive.md). The real-data branch below reuses
 ``LiberoLatentDataset`` and is the integration point for that.
 """
 
@@ -213,6 +213,12 @@ def _backbone_state_from_ckpt(sd: dict) -> dict:
 def _load_config(config_arg: str | None) -> ARWMArgs:
     if config_arg is None:
         return ARWMArgs()
+    # A published model name (see openworld.autoregressive.models) resolves to the
+    # inference_config.py that ships with its checkpoint on the Hub -- so published
+    # checkpoints carry their own config instead of one being committed here.
+    from openworld.autoregressive.models import resolve_config
+
+    config_arg = resolve_config(config_arg)
     path = Path(config_arg)
     if not path.exists() or path.suffix != ".py":
         raise FileNotFoundError(f"Config not found: {config_arg}")

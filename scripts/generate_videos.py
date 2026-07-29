@@ -48,9 +48,14 @@ def main() -> None:
 
     def _abs_if_local(value):
         """Make a relative path absolute iff it points at an existing local file/dir.
-        Leaves non-paths (config names, gs:// URLs, HF repo ids, already-absolute
-        or non-existent strings) untouched."""
-        if isinstance(value, str) and value and not os.path.isabs(value) and os.path.exists(value):
+        Leaves non-paths (config names, published model names, gs:// URLs, HF repo
+        ids, already-absolute or non-existent strings) untouched. A leading ``~`` is
+        expanded first, so configs can portably name a path under $HOME."""
+        if not isinstance(value, str) or not value:
+            return value
+        if value.startswith("~"):
+            value = os.path.expanduser(value)
+        if not os.path.isabs(value) and os.path.exists(value):
             return str(Path(value).resolve())
         return value
 

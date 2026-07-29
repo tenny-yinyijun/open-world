@@ -138,10 +138,23 @@ class DummyDiT(DiTBackbone):
         spatial = torch.arange(tokens_per_frame, device=device).repeat(num_frames)
         return _sincos_1d(frame_idx, self.dim) + _sincos_1d(spatial + 1000, self.dim)
 
+    def _with_pixel_cond(self, latents, pixel_cond):
+        """Append the extra clean conditioning channels along C, as the real
+        backbones do before their widened patch-embed (``wan.py:_call``).
+
+        The stub's ``patch_embed`` is built for ``in_channels``, so a caller that
+        supplies ``pixel_cond`` must have constructed it with the widened width
+        (``in_channels + K``) -- same contract as the real ones.
+        """
+        if pixel_cond is None:
+            return latents
+        return torch.cat([latents, pixel_cond.to(latents.dtype)], dim=2)
+
     # -- forward modes ---------------------------------------------------
-    def forward_train(self, latents, timestep, cond, *, frames_per_block, window=None, causal=True):
+    def forward_train(self, latents, timestep, cond, *, frames_per_block, window=None,
+                      causal=True, clean_x=None, pixel_cond=None):
         B, Fr, C, H, W = latents.shape
-        tok, shp = self._patchify(latents)
+        tok, shp = self._patchify(self._with_pixel_cond(latents, pixel_cond))
         tpf = shp[1] * shp[2]
         tok = tok + self._pos(Fr, tpf, 0, latents.device)[None]
         temb = self._t_emb(timestep, B, Fr, tpf, latents.device)
@@ -154,9 +167,10 @@ class DummyDiT(DiTBackbone):
             tok = blk(tok, temb, cond, layer_idx=i, ctx=ctx)
         return self._unpatchify(tok, shp, C)
 
-    def forward_cached(self, latent_block, timestep, cond, *, kv_cache: KVCache, start_frame, commit=True):
+    def forward_cached(self, latent_block, timestep, cond, *, kv_cache: KVCache, start_frame,
+                       commit=True, pixel_cond=None):
         B, Fr, C, H, W = latent_block.shape
-        tok, shp = self._patchify(latent_block)
+        tok, shp = self._patchify(self._with_pixel_cond(latent_block, pixel_cond))
         tpf = shp[1] * shp[2]
         tok = tok + self._pos(Fr, tpf, start_frame, latent_block.device)[None]
         temb = self._t_emb(timestep, B, Fr, tpf, latent_block.device)

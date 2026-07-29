@@ -7,7 +7,7 @@
 # of the 0617_generated suite; the case list below is that recipe — edit it (or
 # the env paths) to author your own suite.
 #
-# Prereqs (see docs/SCENEGEN.md): GOOGLE_API_KEY, the diffusers fork + multiview
+# Prereqs (see scripts/generate_test_case.py): GOOGLE_API_KEY, the diffusers fork + multiview
 # checkpoint, a GPU. Override any path via env, e.g.  OUT=/my/suite bash ...
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # repo root

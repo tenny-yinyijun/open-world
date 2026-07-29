@@ -11,7 +11,7 @@ the Cosmos RoPE to the block's absolute frame positions (mirroring the Wan
 backbone and OmniDreams' ``start_frame_for_rope`` slice) and lets the patched
 ``BlockCausalCosmosAttnProcessor`` read/grow the KV-cache, so cached
 autoregressive rollout reproduces the masked forward exactly. See
-``docs/AUTOREGRESSIVE.md``.
+``docs/world_model_training/autoregressive.md``.
 """
 
 from __future__ import annotations
@@ -131,7 +131,26 @@ class CosmosBackbone(DiTBackbone):
             )
         return out[0] if isinstance(out, (tuple, list)) else out
 
-    def forward_train(self, latents, timestep, cond, *, frames_per_block, window=None, causal=True):
+    @staticmethod
+    def _reject_pixel_cond(pixel_cond, clean_x=None):
+        """Cosmos has no widened patch-embed, so it cannot take extra channels.
+
+        The kwargs are accepted (the shared call sites pass them unconditionally)
+        but a non-None value is a configuration error, not something to drop
+        silently -- ignoring it would train/roll out an unconditioned model that
+        merely *looks* like it honors camera_cond / pixel_cond.
+        """
+        for name, value in (("pixel_cond", pixel_cond), ("clean_x", clean_x)):
+            if value is not None:
+                raise NotImplementedError(
+                    f"{name} is not supported by the Cosmos backbone (no widened "
+                    "patch-embed); use backbone='wan_1_3b' for camera_cond / "
+                    "pixel_cond models."
+                )
+
+    def forward_train(self, latents, timestep, cond, *, frames_per_block, window=None,
+                      causal=True, clean_x=None, pixel_cond=None):
+        self._reject_pixel_cond(pixel_cond, clean_x)
         B, Fr, C, H, W = latents.shape
         tpf = (H // self.patch_spatial) * (W // self.patch_spatial)
         ctx = self.context
@@ -146,7 +165,9 @@ class CosmosBackbone(DiTBackbone):
         ctx.mode = "off"
         return self._to_fchw(x)
 
-    def forward_cached(self, latent_block, timestep, cond, *, kv_cache: KVCache, start_frame, commit=True):
+    def forward_cached(self, latent_block, timestep, cond, *, kv_cache: KVCache, start_frame,
+                       commit=True, pixel_cond=None):
+        self._reject_pixel_cond(pixel_cond)
         B, Fr, C, H, W = latent_block.shape
         ctx = self.context
         ctx.mode = "cache"

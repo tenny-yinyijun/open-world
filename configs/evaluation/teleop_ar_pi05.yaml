@@ -3,10 +3,13 @@
 # Driven by the ARWanWorldModel closed-loop adapter.
 world_model:
   name: ar_wan
-  checkpoint_path: checkpoints/ar_wm/wm_student_2view.pt
+  # A published model NAME (not a path): the weights, the inference config that
+  # reproduces this checkpoint's geometry, and its action-normalization stats are
+  # all fetched from the Hub into the HF cache on first run. See docs/MODELS.md.
+  checkpoint_path: wm_student_2view
   params:
-    config_path: configs/inference/ar_wan_student_2view.py
-    stats_root: assets/teleop_inits                # stats.json is in the teleop_inits dir
+    config_path: wm_student_2view
+    stats_root: wm_student_2view
     vae_dir: external/Wan2.1-T2V-1.3B-Diffusers
     num_inference_steps: 32          # "slow" student: many-step flow matching (32 steps for undistilled)
     num_cams: 2                      # 2-view model (1 sampled side + wrist)
@@ -17,7 +20,9 @@ world_model:
     debug_log_limit: 4
 policy:
   name: openpi
-  checkpoint_path: /home/yy4041/.cache/openpi/openpi-assets/checkpoints/pi05_droid
+  # Default openpi download location; override with OPENPI_DATA_HOME or edit this
+  # path if your pi05_droid checkpoint lives elsewhere.
+  checkpoint_path: ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid
   params:
     config_name: pi05_droid
     repo_path: external/openpi

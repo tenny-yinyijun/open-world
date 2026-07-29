@@ -10,9 +10,18 @@ uv run python scripts/run_evaluation.py \
     --config configs/evaluation/teleop_ar_pi05.yaml
 ```
 
-This runs the `wm_student_2view.pt` checkpoint with pi0.5 policy on initializations in `assets/teleop_inits/`.
+This runs the `wm_student_2view` world model with the pi0.5 policy on initializations in
+`assets/teleop_inits/`. The world model (weights + its inference config + action stats)
+is downloaded from Hugging Face on first run — see [MODELS.md](MODELS.md).
 
 Output videos: `outputs/teleop_ar_pi05/videos/`
+
+You also need a local pi0.5 policy checkpoint; the config points at the default openpi
+download location (`~/.cache/openpi/openpi-assets/checkpoints/pi05_droid`).
+
+> The published world model is an **undistilled 32-step** student, so evaluation is
+> slow. Few-step distilled models are planned — see
+> [MODELS.md](MODELS.md#roadmap-few-step-distilled-models).
 
 ## Running on Different Initializations
 
@@ -31,10 +40,12 @@ If you need different settings, create a new YAML config:
 # configs/evaluation/my_eval.yaml
 world_model:
   name: ar_wan
-  checkpoint_path: path/to/checkpoint.pt
+  # A published model name resolves weights + config + stats from the Hub.
+  # For a local checkpoint, give real paths to all three instead.
+  checkpoint_path: wm_student_2view
   params:
-    config_path: configs/inference/ar_wan_student_2view.py
-    stats_root: path/to/stats_dir
+    config_path: wm_student_2view
+    stats_root: wm_student_2view
     vae_dir: external/Wan2.1-T2V-1.3B-Diffusers
     num_inference_steps: 32
     num_cams: 2
@@ -44,7 +55,7 @@ world_model:
 
 policy:
   name: openpi
-  checkpoint_path: ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid
+  checkpoint_path: ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid   # ~ is expanded
   params:
     config_name: pi05_droid
     repo_path: external/openpi
@@ -93,23 +104,27 @@ init_dir/
 ## Available Configs
 
 See `configs/evaluation/` for pre-configured examples:
-- `teleop_ar_pi05.yaml` - AR 2-view + pi0.5 + teleop inits
-- `0617_ar_pi05.yaml` - AR 3-view + pi0.5
+- `teleop_ar_pi05.yaml` - AR `wm_student_2view` + pi0.5 + teleop inits (**start here**)
+- `0617_ar_pi05.yaml` - AR 3-view + pi0.5 (needs a local 3-view checkpoint)
 - `0617_ctrlworld_pi05.yaml` - Ctrl-World + pi0.5
+
+Only `teleop_ar_pi05.yaml` runs against a published checkpoint; the others point at
+local paths from earlier experiments.
 
 ---
 
 ## Reference: World Model Config Examples
 
 <details>
-<summary>AR Wan 2-view</summary>
+<summary>AR Wan 2-view (wm_student_2view)</summary>
 
 ```yaml
 world_model:
   name: ar_wan
-  checkpoint_path: checkpoints/ar_wm/wm_student_2view.pt
+  checkpoint_path: wm_student_2view
   params:
-    config_path: configs/inference/ar_wan_student_2view.py
+    config_path: wm_student_2view
+    stats_root: wm_student_2view
     num_cams: 2
     view_order: [exterior_right, wrist]
     num_inference_steps: 32
@@ -117,18 +132,21 @@ world_model:
 </details>
 
 <details>
-<summary>AR Wan 3-view bimanual</summary>
+<summary>AR Wan 3-view bimanual — not supported for policy eval yet</summary>
 
-```yaml
-world_model:
-  name: ar_wan
-  checkpoint_path: checkpoints/ar_wm/wm_student_3view_bimanual.pt
-  params:
-    config_path: configs/inference/ar_wan_student_3view_bimanual.py
-    num_cams: 3
-    view_order: [exterior_right, exterior_left, wrist]
-    num_inference_steps: 32
-```
+The 3-view bimanual camera_cond student is published (`wm_student_3view_bimanual/` on
+the Hub) but **cannot** be run through policy evaluation today. Three things are missing,
+not just a config:
+
+- `InteractiveRoller` (the adapter's rollout path) has no `camera_cond` support: it
+  allocates latent blocks at 16 channels and passes `pixel_cond=None`, but this
+  checkpoint's patch-embed takes 25. Only `scripts/replay_ar.py` renders the geometry.
+- `ARWanWorldModel` reads a 7-d DROID cartesian state; this model needs the 20-d
+  bimanual vector.
+- The bundled `assets/teleop_inits/` are 2-view / 7-d.
+
+Use `scripts/replay_ar.py` for this checkpoint — it is replay-only for now (see
+[configs/inference/README.md](../configs/inference/README.md)).
 </details>
 
 <details>

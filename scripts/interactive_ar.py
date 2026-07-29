@@ -491,6 +491,12 @@ class Engine:
     def __init__(self, args):
         self.args = args
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # --config / --checkpoint accept a published model name (resolved from the Hub,
+        # where each checkpoint ships with its own inference config) or a local path.
+        from openworld.autoregressive.models import resolve_checkpoint
+
+        if args.checkpoint:
+            args.checkpoint = resolve_checkpoint(args.checkpoint)
         self.cfg = _load_config(args.config)
         if args.latent_root:
             self.cfg.latent_root = args.latent_root
@@ -1254,8 +1260,12 @@ setInterval(ping,1000);ping();
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--config", required=True, help="ARWMArgs config (configs/training/ar_*.py).")
-    p.add_argument("--checkpoint", default=None, help="Trained student .pt (ARWorldModel state_dict).")
+    p.add_argument("--config", required=True,
+                   help="Published model name (e.g. wm_student_2view -- fetches its "
+                        "inference config from the Hub) or a local ARWMArgs config .py.")
+    p.add_argument("--checkpoint", default=None,
+                   help="Published model name (e.g. wm_student_2view) or a local trained "
+                        "student .pt (ARWorldModel state_dict).")
     p.add_argument("--vae-dir", default="external/Wan2.1-T2V-1.3B-Diffusers", help="Wan VAE for decoding.")
     p.add_argument("--decode-device", default=None,
                    help="Run the VAE decode on a second device (e.g. 'cuda:1'), overlapped with the "

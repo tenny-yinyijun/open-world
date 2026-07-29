@@ -22,7 +22,7 @@ video:
 Conditioning stays minimal (robot actions + first frame + history via the
 KV-cache); unlike driving there is no HD-map "state" to render, so the burden of
 representing object state is carried by the causal memory. See
-``docs/AUTOREGRESSIVE.md`` for the full design rationale.
+``docs/world_model_training/autoregressive.md`` for the full design rationale.
 
 Nothing here imports heavy backbone weights at module import time, so the
 package is safe to import for unit tests with the ``DummyDiT`` backbone.

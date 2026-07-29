@@ -24,4 +24,5 @@ wandb run `ar_wan_studentinit_<fix>`. Resume is crash-safe (re-submit to continu
 generator's cond to the bare teacher/critic). Mode-matched teacher configs exist:
 `ar_wan_teacher_droid_{pe,aligned,adaln}.py`.
 
-See `docs/AUTOREGRESSIVE.md` for the full L2a/L1b/L0 pipeline.
+See [world_model_training/autoregressive.md](world_model_training/autoregressive.md)
+for the full L2a/L1b/L0 pipeline.

@@ -1,8 +1,16 @@
-# assets/ — base initialization views for scene generation
+# assets/ — bundled initialization views
 
-Each subdirectory is a **base**: a fresh, unedited initialization that scene-edit
-suites are built on top of. A base holds the three world-model views plus a
-`template.yaml` with the robot start state and a default `scene` tag.
+- **[`teleop_inits/`](teleop_inits)** — a small ready-to-run Initialization suite
+  (per-view PNGs + `initialization.yaml` + action-norm `stats.json`). It is the default
+  for [teleoperation](../docs/TELEOPERATION.md) and the bundled
+  [policy-eval](../docs/EVAL.md) config, so a fresh clone works with no data download.
+- **`tri/` · `irom/`** — scene-generation **bases** (below).
+
+## Scene-generation bases
+
+A base is a fresh, unedited initialization that scene-edit suites are built on top of.
+It holds the three world-model views plus a `template.yaml` with the robot start state
+and a default `scene` tag.
 
 ```
 assets/<base>/
@@ -22,7 +30,7 @@ assets/<base>/
 Reference a base by name (`tri` / `irom`) in a suite spec and build with
 nanobanana all-views edits — see
 [`configs/scenegen/suites/example.yaml`](../configs/scenegen/suites/example.yaml)
-and [`docs/SCENEGEN.md`](../docs/SCENEGEN.md):
+and the `build_suite.py` module docstring:
 
 ```bash
 GOOGLE_API_KEY=... python scripts/scenegen/build_suite.py \

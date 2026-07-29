@@ -6,14 +6,13 @@ open-loop [trajectory replay](TRAJECTORY_REPLAY.md): instead of feeding a record
 action sequence, *you* steer the end-effector and the model generates the
 consequences block-by-block, keeping its KV-cache warm so each step is cheap.
 
-> **Distilled vs. undistilled checkpoints.** The examples below show the low-latency
-> **4-step distilled** deployment path (`--distilled`). The two published students
-> ([docs/MODELS.md](MODELS.md), `wm_student_2view.pt` / `wm_student_3view_bimanual.pt`)
-> are **undistilled** — run them with the many-step preview schedule by **omitting
-> `--distilled`** (it's slower per step but correct; `--distilled` on an undistilled
-> backbone is a blurry colour-wash). Everything else (tunneling, SpaceMouse client,
-> recording) is identical. Pick the `configs/inference/*` config that matches your
-> checkpoint's views / action dims / state-pred head.
+> **Distilled vs. undistilled checkpoints.** Some examples below show the low-latency
+> **4-step distilled** deployment path (`--distilled`). The published `wm_student_2view`
+> model ([docs/MODELS.md](MODELS.md)) is **undistilled** — run it with the many-step
+> preview schedule by **omitting `--distilled`** (slower per step but correct;
+> `--distilled` on an undistilled backbone is a blurry colour-wash). Everything else
+> (tunneling, SpaceMouse client, recording) is identical. Few-step distilled releases
+> are planned; see [MODELS.md](MODELS.md#roadmap-few-step-distilled-models).
 
 ## The cluster split
 
@@ -128,7 +127,9 @@ Open `http://localhost:8000/` and start driving the marker with the space mouse.
     checkpoint**. This is the default `--benchmark-root`; see the latent-free quick
     start below.
   - **Preprocessed seed episodes** (the richer path): the Wan-VAE latents used for
-    replay / training (see [AUTOREGRESSIVE.md](AUTOREGRESSIVE.md)), passed via
+    replay / training (see
+    [world_model_training/autoregressive.md](world_model_training/autoregressive.md)),
+    passed via
     `--latent-root`. The model is primed from one ground-truth episode's first
     frames, then you drive from there.
 - On the **laptop**: a Python env with `robosuite` + `hidapi`, and the SpaceMouse
@@ -147,10 +148,10 @@ preprocessed `.pt` episodes — only the checkpoint:
 ```bash
 cd /path/to/open-world
 uv run python scripts/interactive_ar.py \
-    --config configs/inference/ar_wan_student_2view.py \
-    --checkpoint checkpoints/ar_wm/wm_student_2view.pt \
+    --config wm_student_2view --checkpoint wm_student_2view \
     --bf16 --static-cache --max-kv-blocks 8 --compile \
     --port 8000
+# the model NAME fetches weights + its inference config from the Hub
 # note: no --distilled (undistilled student -> many-step preview schedule)
 ```
 
@@ -159,7 +160,7 @@ The browser shows an **"initialization (benchmark suite)"** dropdown — pick an
 
 The bundled inits are **DROID cartesian (7-dim), and ship the DROID view set**
 (`exterior_left.png`, `exterior_right.png`, `wrist.png`) — so they pair with the
-**2-view** cartesian student (`ar_wan_student_2view.py`); the loader subsets to the
+**2-view** cartesian student (`wm_student_2view`); the loader subsets to the
 config's `num_cams` (wrist + first side). Their `stats.json` (action normalization)
 is bundled too and loaded automatically when no `--latent-root` stats are present.
 The **3-view bimanual** student (`ar_wan_student_3view_bimanual.py`) needs its own
@@ -177,8 +178,7 @@ bf16 + a fused, bounded, fixed-shape attention cache — with **synchronous deco
 # on an interactive GPU node (this cluster's compute nodes are offline -> salloc)
 cd /path/to/open-world
 uv run python scripts/interactive_ar.py \
-    --config configs/inference/ar_wan_student_2view.py \
-    --checkpoint checkpoints/ar_wm/wm_student_2view.pt \
+    --config wm_student_2view --checkpoint wm_student_2view \
     --latent-root /path/to/<preprocessed_latents> \
     --bf16 --static-cache --max-kv-blocks 8 --compile \
     --measure-latency \
@@ -188,8 +188,9 @@ uv run python scripts/interactive_ar.py \
 #   add --rotate-wrist if your wrist camera is mounted inverted (display-only)
 ```
 
-Pick the `configs/inference/*` config whose views / action dims / state-pred head
-**match how the checkpoint was trained** (see
+For a name-resolvable model (`wm_student_2view`), the name resolves the matching config
+for you. Otherwise pick the `configs/inference/*` config whose views / action
+dims / state-pred head **match how the checkpoint was trained** (see
 [configs/inference/README.md](../configs/inference/README.md)). The 2-view (7-dim),
 bimanual (20-dim), and legacy joint_pos (8-dim) checkpoints are not interchangeable.
 Pass `--distilled` only for a genuinely distilled few-step checkpoint.

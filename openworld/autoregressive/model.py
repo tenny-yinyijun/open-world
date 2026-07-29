@@ -9,7 +9,7 @@ autoregressive ``rollout`` for inference.
 Latent-channel note: Wan/Cosmos operate on 16-channel latents from their own
 VAEs, whereas the existing LIBERO dataset stores 4-channel SVD-VAE latents. To
 train these backbones on robot data the dataset must be **re-encoded with the
-backbone's VAE** (see ``docs/AUTOREGRESSIVE.md`` and
+backbone's VAE** (see ``docs/world_model_training/autoregressive.md`` and
 ``scripts/preprocess_ar_latents.py`` TODO). ``cfg.in_channels`` reflects the
 backbone's expectation.
 """
