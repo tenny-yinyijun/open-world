@@ -153,6 +153,21 @@ contract in `openworld/autoregressive/tests/test_published_models.py` — the ga
 because a wrong `stage` doesn't raise, it just renders a colour-wash. Run that test with
 `-m hub` any time to re-check the **live** config.
 
+## Not a world model: the action adapter
+
+Policy evaluation needs one more, much smaller checkpoint that is **not** part of any
+world model and does not resolve by name:
+
+| what | where | size | needed for |
+|---|---|---|---|
+| action adapter (`model2_15_9.pth`) | `checkpoints/action_adapter/` via `external/download_models.sh` | ~1.5 MB | policy eval only |
+
+It converts a DROID policy's **joint-velocity** chunk into the **absolute cartesian EEF
+poses** these world models are conditioned on (integrate joint velocities → FK). Every
+world model here needs it for policy eval, none of them contain it. Teleoperation doesn't
+need it (a SpaceMouse already emits cartesian deltas). Setup and the silent-failure mode
+if it's missing: [EVAL.md](EVAL.md#two-things-you-must-fetch-yourself).
+
 ## Model families
 
 ### Autoregressive (AR) — *primary*

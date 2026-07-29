@@ -47,4 +47,8 @@ echo "Done."
 echo "CLIP path: ${ROOT_DIR}/clip-vit-base-patch32"
 echo "SVD path: ${ROOT_DIR}/stable-video-diffusion-img2vid"
 echo "Checkpoints path: ${CKPT_DIR}"
+echo "  action adapter: ${CKPT_DIR}/action_adapter/model2_15_9.pth  (needed for policy eval)"
 echo "Benchmark path: ${BENCHMARK_DIR}"
+echo
+echo "Note: published AR world models are NOT downloaded here -- they resolve by name"
+echo "      from the HF cache at run time. See docs/MODELS.md."

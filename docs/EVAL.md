@@ -16,12 +16,50 @@ is downloaded from Hugging Face on first run — see [MODELS.md](MODELS.md).
 
 Output videos: `outputs/teleop_ar_pi05/videos/`
 
-You also need a local pi0.5 policy checkpoint; the config points at the default openpi
-download location (`~/.cache/openpi/openpi-assets/checkpoints/pi05_droid`).
-
 > The published world model is an **undistilled 32-step** student, so evaluation is
 > slow. Few-step distilled models are planned — see
 > [MODELS.md](MODELS.md#roadmap-few-step-distilled-models).
+
+### Two things you must fetch yourself
+
+Unlike the world model, these do **not** resolve by name — the configs reference them by
+path, and evaluation fails (or silently misbehaves) if they are missing:
+
+1. **The policy checkpoint.** The config points at openpi's default download location,
+   `~/.cache/openpi/openpi-assets/checkpoints/pi05_droid`. Edit `checkpoint_path` if
+   yours lives elsewhere.
+
+2. **The action adapter** (`checkpoints/action_adapter/model2_15_9.pth`, ~1.5 MB) — a
+   small MLP, *not* part of the world model. `bash external/download_models.sh` clones it
+   into `checkpoints/` (a gitignored dir) along with the SVD world-model weights:
+
+   ```bash
+   bash external/download_models.sh      # -> checkpoints/action_adapter/model2_15_9.pth
+   ```
+
+   To fetch just the adapter without the ~9 GB SVD checkpoint in the same repo:
+
+   ```bash
+   hf download tennyyyin/open-world-checkpoints action_adapter/model2_15_9.pth \
+       --local-dir checkpoints
+   ```
+
+#### Why the adapter is needed
+
+DROID policies (pi0, pi0.5, DP) emit **joint-velocity** chunks, but the world models here
+are conditioned on **absolute cartesian EEF poses**. The adapter
+(`openworld/policies/openpi_action_adapter.py:Dynamics`) integrates 15×7 joint velocities
+into future absolute joint positions, which forward kinematics then turns into the
+cartesian poses the world model consumes.
+
+> **This fails quietly if you skip it.** `action_adapter_checkpoint_path: null` is
+> allowed — it exists so tests can run without the checkpoint — and in that mode raw
+> joint velocities are passed through as if they were poses. FK collapses to the home
+> pose and the world model renders a **static robot** rather than raising. If your
+> rollouts show a robot that never moves, check this first.
+
+Teleoperation does not need the adapter: a SpaceMouse already produces cartesian deltas,
+so there is nothing to integrate.
 
 ## Running on Different Initializations
 

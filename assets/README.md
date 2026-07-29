@@ -6,6 +6,12 @@
   [policy-eval](../docs/EVAL.md) config, so a fresh clone works with no data download.
 - **`tri/` · `irom/`** — scene-generation **bases** (below).
 
+No model weights live here — `assets/` is committed input data only. Weights land in the
+gitignored `checkpoints/` (via `bash external/download_models.sh`) or in the HF cache
+(published world models, resolved by name). That includes the small action-adapter MLP
+needed for policy eval: `checkpoints/action_adapter/model2_15_9.pth`, see
+[docs/EVAL.md](../docs/EVAL.md#two-things-you-must-fetch-yourself).
+
 ## Scene-generation bases
 
 A base is a fresh, unedited initialization that scene-edit suites are built on top of.
