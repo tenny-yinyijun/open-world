@@ -103,20 +103,26 @@ def _assert_2view_contract(cfg):
 
 
 def test_staged_2view_config_matches_checkpoint_contract():
-    """The staged (pre-upload) config satisfies the checkpoint's contract.
+    """A *staged* (not yet uploaded) config satisfies the checkpoint's contract.
 
-    Runs offline against ``artifacts/hf/`` so a bad config is caught before it is
-    published, not after.
+    The Hub is the only copy of a published config, so there is nothing in this repo
+    to check -- ``scripts/publish_model.py`` instead points ``OPENWORLD_STAGED_CONFIG``
+    at the file it is about to upload and runs this test first. That is what catches a
+    bad config *before* it is published, which matters because a wrong ``stage`` fails
+    silently at rollout time (a blurry colour-wash, not an exception).
+
+    Skips in an ordinary test run, where no upload is pending.
     """
+    staged = os.environ.get("OPENWORLD_STAGED_CONFIG")
+    if not staged:
+        pytest.skip(
+            "no OPENWORLD_STAGED_CONFIG (set by scripts/publish_model.py before an "
+            "upload); the live config is covered by the -m hub test"
+        )
+    assert os.path.exists(staged), f"staged config does not exist: {staged}"
+
     from openworld.autoregressive.train_self_forcing import _load_config
 
-    staged = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..",
-        "artifacts", "hf", "wm_student_2view", "inference_config.py",
-    )
-    staged = os.path.normpath(staged)
-    if not os.path.exists(staged):
-        pytest.skip("staged HF config not present (already published and cleaned up)")
     _assert_2view_contract(_load_config(staged))
 
 

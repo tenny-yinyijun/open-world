@@ -133,9 +133,25 @@ hf download tennyyyin/open-world-ar-wm \
 > ```
 > See [`bash_scripts/README.md`](../bash_scripts/README.md).
 
-The registry lives in
-[`openworld/autoregressive/models.py`](../openworld/autoregressive/models.py); publish
-metadata updates with `scripts/publish_model.py`.
+### Maintaining a published model
+
+The registry that maps a name to a Hub folder lives in
+[`openworld/autoregressive/models.py`](../openworld/autoregressive/models.py). The Hub is
+the **only** copy of a model's config and stats — the repo keeps no staged duplicate to
+drift out of sync. To change one, download it to a scratch dir, edit, and publish:
+
+```bash
+hf download tennyyyin/open-world-ar-wm --include 'wm_student_2view/*' \
+    --exclude '*.pt' --local-dir /tmp/hf-staging
+# edit /tmp/hf-staging/wm_student_2view/inference_config.py
+python scripts/publish_model.py wm_student_2view \
+    --staging-dir /tmp/hf-staging/wm_student_2view --dry-run
+```
+
+Dropping `--dry-run` uploads, but only after the edited file passes the checkpoint
+contract in `openworld/autoregressive/tests/test_published_models.py` — the gate exists
+because a wrong `stage` doesn't raise, it just renders a colour-wash. Run that test with
+`-m hub` any time to re-check the **live** config.
 
 ## Model families
 
