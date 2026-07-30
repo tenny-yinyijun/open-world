@@ -53,12 +53,13 @@ uv run python scripts/run_evaluation.py --config configs/evaluation/teleop_ar_pi
 
 ### Authoring your own Initialization suites
 
-`openworld/scenegen/` builds suites from a language instruction + an image: a guardrail
-rewrites the instruction into an edit prompt, nanobanana edits the views, and the result
-is assembled into an `initialization.yaml` + PNG suite. There is no separate doc — the
-CLIs carry their usage in their module docstrings:
+**[SCENEGEN.md](SCENEGEN.md)** — `openworld/scenegen/` builds suites from a base scene
+plus a list of edits: a guardrail rewrites each instruction into a per-camera edit
+prompt, a pluggable *mode* generates the views, and the result is assembled into an
+`initialization.yaml` + PNG suite that is verified against the eval loader before exit.
+Supports 3-view and 2-view (`wm_student_2view`) suites.
 
 - `scripts/scenegen/build_suite.py` — suite from a YAML spec of scene edits (see
-  `configs/scenegen/suites/example.yaml`); needs only `GOOGLE_API_KEY`, no GPU
-- `scripts/generate_test_case.py` — single case via the multiview add-object path
+  `configs/scenegen/suites/example_2view.yaml`); needs only `GOOGLE_API_KEY`, no GPU
+- `scripts/generate_test_case.py` — add a new object via the multiview mode (GPU)
 - base view sets: [`assets/`](../assets/README.md)

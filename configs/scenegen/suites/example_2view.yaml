@@ -1,0 +1,100 @@
+# Example 2-view suite spec — one side camera + wrist.
+#
+#   GOOGLE_API_KEY=... python scripts/scenegen/build_suite.py \
+#       --spec configs/scenegen/suites/example_2view.yaml
+#
+# This is the layout the published `wm_student_2view` world model expects:
+# view_order [exterior_right, wrist] (see configs/evaluation/teleop_ar_pi05.yaml).
+# The suite writes an explicit initial_observation.views block listing exactly
+# these two views, which is what makes a 2-view case loadable by the eval
+# scripts — InitializationDataset only *infers* views when all three DROID
+# cameras are present.
+
+base: tri                       # assets/tri has 3 views; `views` selects 2 of them
+name: example_2view             # output -> data/benchmark/example_2view
+task_type: manipulation
+
+# The view subset. Order does not matter here — the builder sorts into the
+# canonical world-model order (sides first, wrist last).
+views: [exterior_right, wrist]
+
+# Scene-generation mode. `nanobanana` (default) edits with Gemini 2.5 Flash
+# Image; `copy` passes the base through unedited (no API calls) if you just want
+# to check the format.
+mode: nanobanana
+
+# Which view anchors each edit. The anchor is edited first from the prompt alone;
+# the other view is then edited with the anchor's result passed in as a reference
+# image, so the two cameras show the same scene.
+#   wrist_first — the top-down view anchors. Best for object add/remove/replace:
+#                 the overhead view pins placement on the table most precisely.
+#   side_first  — the exterior view anchors. Best for background / lighting /
+#                 room edits: the side view is where the room actually is.
+# Set per-edit with `edit_order:` to override this suite default.
+edit_order: wrist_first
+
+# Prepend an unedited control case as init_0 (zero generative drift) to compare
+# the edited cases against.
+include_base_case: true
+
+# Appended to every edit prompt: pins everything the edits must leave alone.
+# The per-camera geometry clause and the generic "don't move the camera"
+# preservation clause are added automatically by the guardrail — this clause is
+# for the scene-specific things only you know about.
+keep: >
+  Keep the mug, the white container/bin, the robot arm and gripper, and all
+  object positions exactly the same. Do not move, remove, add, warp, or recolor
+  any object that the edit does not explicitly target.
+
+edits:
+  # --- object edits: anchor on the wrist view -------------------------------
+  - label: white_ceramic_flower_mug
+    instruction: put the mug in the white container
+    edit_order: wrist_first
+    keep: >
+      Keep the white container/bin, the robot arm and gripper, and every object
+      in its exact original location. Do not move, resize, rotate, tip, add, or
+      remove any object.
+    prompt: >
+      Repaint ONLY the surface of the blue mug so it becomes a white ceramic mug
+      decorated with a delicate, colorful floral pattern. This is a
+      texture/color change only: the mug must stay in the exact same place on the
+      table, keep the same size and proportions, and remain standing upright in
+      the identical pose. Do not move it, do not enlarge it, do not tip or rotate
+      it. Change nothing else in the scene.
+
+  - label: clear_glass_mug
+    instruction: put the mug in the white container
+    edit_order: wrist_first
+    prompt: >
+      Change ONLY the blue mug into a fully transparent clear glass mug that you
+      can see through, with realistic refraction and a soft contact shadow. Keep
+      the mug in the exact same position on the table, at the same size,
+      orientation, and shape.
+
+  # --- background / lighting edits: anchor on the side view -----------------
+  # The side camera sees the room; anchoring there and then propagating to the
+  # wrist view keeps the two cameras agreeing about the new background.
+  - label: forest_background
+    instruction: put the mug in the white container
+    edit_order: side_first
+    prompt: >
+      Replace ONLY the room walls and background surrounding the table with an
+      outdoor forest scene — green trees, foliage, and soft natural daylight — as
+      if this table sits in a forest. Keep the tabletop surface itself unchanged.
+
+  - label: green_tabletop
+    instruction: put the mug in the white container
+    edit_order: side_first
+    prompt: >
+      Change ONLY the wooden tabletop surface to a solid, uniform matte green
+      tabletop (a clean, even green color). Leave the walls and background
+      unchanged.
+
+  - label: red_tone_lighting
+    instruction: put the mug in the white container
+    edit_order: side_first
+    prompt: >
+      Relight the entire scene with a warm red/amber tone, as if lit by a red
+      light source, casting a reddish color tint over everything while keeping
+      all details visible. Change ONLY the lighting color and tone.

@@ -1,0 +1,74 @@
+# The 0617_generated background / lighting / content edits, as a spec.
+#
+# This replaces the hand-rolled `make_suite_background_edit.py` (init_8..11) and
+# `make_init12.py` (init_12) recipes: same prompts, but built through the shared
+# builder, so the cases get an explicit `initial_observation` block and are
+# verified against the eval loader.
+#
+#   GOOGLE_API_KEY=... python scripts/scenegen/build_suite.py \
+#       --spec configs/scenegen/suites/0617_background_edits.yaml \
+#       --name 0617_generated --start-index 8
+#
+# These are background / lighting / room edits, so they anchor on the side view.
+# Drop `--views` to build all three DROID views; add
+# `--views exterior_right wrist` to build the same edits for the 2-view model.
+
+base: tri
+name: 0617_background_edits
+task_type: manipulation
+scene: vid15_nanobanana
+edit_order: side_first
+
+keep: >
+  Keep the blue mug, the white container/bin, the robot arm and gripper, and all
+  object positions exactly the same. Do not move, remove, add, warp, or recolor
+  any object.
+
+edits:
+  # init_8
+  - label: green_tabletop
+    instruction: put the mug in the white container
+    prompt: >
+      Change ONLY the wooden tabletop surface to a solid, uniform matte green
+      tabletop (a clean, even green color).
+
+  # init_9
+  - label: forest_background
+    instruction: put the mug in the white container
+    prompt: >
+      Replace ONLY the room walls and background surrounding the table with an
+      outdoor forest scene — green trees, foliage, and soft natural daylight — as
+      if this table sits in a forest. Keep the tabletop itself unchanged.
+
+  # init_10
+  - label: restaurant_background
+    instruction: put the mug in the white container
+    prompt: >
+      Replace ONLY the room walls and background surrounding the table with the
+      interior of a warm, cozy restaurant — distant dining tables, chairs, and
+      ambient restaurant lighting and decor. Keep the tabletop itself unchanged.
+
+  # init_11
+  - label: red_tone_lighting
+    instruction: put the mug in the white container
+    prompt: >
+      Relight the entire scene with a warm red/amber tone, as if lit by a red
+      light source, casting a reddish color tint over everything while keeping all
+      details visible. Change ONLY the lighting color and tone.
+
+  # init_12 — a content edit, so it overrides `keep` (the tabletop and the
+  # container are exactly what this case changes).
+  - label: beach_darkwood_cardboard
+    instruction: put the mug in the cardboard box
+    keep: >
+      Keep the blue mug, the robot arm and gripper, and all object positions
+      exactly the same. Do not move, remove, or add any object, and do not
+      recolor or warp the blue mug or the robot.
+    prompt: >
+      Make three edits to this scene. (1) Replace the room, walls, and background
+      surrounding the table with an outdoor sunny beach — golden sand, blue ocean,
+      and a bright clear sky under warm midday sunlight. (2) Change the wooden
+      tabletop surface to a darker, rich dark-brown wood, keeping the same wood
+      grain. (3) Transform the white plastic container/bin on the table into a
+      plain brown corrugated cardboard box of the same size and shape, sitting
+      open in the exact same position.

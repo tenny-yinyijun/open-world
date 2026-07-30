@@ -15,14 +15,14 @@ needed for policy eval: `checkpoints/action_adapter/model2_15_9.pth`, see
 ## Scene-generation bases
 
 A base is a fresh, unedited initialization that scene-edit suites are built on top of.
-It holds the three world-model views plus a `template.yaml` with the robot start state
+It holds one PNG per world-model view plus a `template.yaml` with the robot start state
 and a default `scene` tag.
 
 ```
 assets/<base>/
 ├── wrist.png            # 320×192 top-down wrist camera
-├── exterior_left.png    # 320×192
-├── exterior_right.png   # 320×192
+├── exterior_right.png   # 320×192 side camera, mounted to the right
+├── exterior_left.png    # 320×192 side camera — 3-view bases only
 └── template.yaml        # initial_state (robot pose) + default scene tag
 ```
 
@@ -31,21 +31,30 @@ assets/<base>/
 | `tri`  | `data/benchmark/0617_generated/_base_original/` | the `0617_generated` suite |
 | `irom` | `open-world/data/benchmark/irom_carrot_pnp/init_2/` | irom-princeton DROID setup |
 
+Both bundled bases carry all three views. A suite picks the subset its world model
+was trained on, so the same base serves both the 3-view models and the 2-view
+`wm_student_2view` (`exterior_right` + `wrist`) — see
+[docs/SCENEGEN.md](../docs/SCENEGEN.md#view-sets-3-view-and-2-view).
+
 ## Use
 
-Reference a base by name (`tri` / `irom`) in a suite spec and build with
-nanobanana all-views edits — see
-[`configs/scenegen/suites/example.yaml`](../configs/scenegen/suites/example.yaml)
-and the `build_suite.py` module docstring:
+Reference a base by name (`tri` / `irom`) in a suite spec, pick the views, and build:
 
 ```bash
 GOOGLE_API_KEY=... python scripts/scenegen/build_suite.py \
-    --spec configs/scenegen/suites/example.yaml
+    --spec configs/scenegen/suites/example_2view.yaml
 # -> data/benchmark/<name>/init_*/
 ```
 
+[`example.yaml`](../configs/scenegen/suites/example.yaml) is the 3-view spec;
+[`example_2view.yaml`](../configs/scenegen/suites/example_2view.yaml) is the 2-view one
+and documents every key. Full workflow: [docs/SCENEGEN.md](../docs/SCENEGEN.md).
+
 ## Adding a base
 
-Drop the three `*.png` views into a new `assets/<name>/`, add a `template.yaml`
-with an `initial_state` block (copy one from an existing
+Drop the view `*.png` files into a new `assets/<name>/` (at minimum `wrist.png` and
+one `exterior_*.png`; add all three if you want the base to serve 3-view models too),
+add a `template.yaml` with an `initial_state` block (copy one from an existing
 `initialization.yaml`) and a `scene:` tag, then reference `<name>` from a spec.
+`scripts/scenegen/remove_object.py` will chain-erase an object across the views to
+produce an empty-table base from an existing init.

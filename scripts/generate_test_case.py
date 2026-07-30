@@ -1,10 +1,14 @@
 #!/usr/bin/env python
-"""Build a world-model test-case suite from a language instruction + an image.
+"""Add a NEW object to a scene: the ``multiview`` mode as a single-suite CLI.
 
-Pipeline (see openworld/scenegen/): a *guardrail* rewrites your plain instruction
-into a nanobanana-ready edit prompt, the bundled diffusers pipeline edits the
-wrist view and completes the two side views, and the three views are assembled
-into an Initialization suite that scripts/run_evaluation.py can roll out.
+This is the GPU path — nanobanana edits the wrist view and FLUX.2-klein
+synthesizes the side views from it, so it can introduce an object that is not in
+the base scene at all. For background / lighting / material edits on an existing
+scene, use the (much cheaper, no-GPU) nanobanana mode via
+``scripts/scenegen/build_suite.py``.
+
+Because the side views are generated *from* the wrist view, this path is
+inherently wrist-anchored (``edit_order=wrist_first``).
 
 Prerequisites:
   - GOOGLE_API_KEY exported (nanobanana + the gemini guardrail backend).
@@ -16,10 +20,16 @@ Prerequisites:
 Example:
     GOOGLE_API_KEY=... uv run python scripts/generate_test_case.py \\
         --instruction "put the carrot in the bowl" \\
-        --init-image external/diffusers/assets/droid/wrist.jpg \\
-        --name carrot_in_bowl \\
-        --num-cases 3
+        --base tri --name carrot_in_bowl --num-cases 3
     # -> writes data/initializations/carrot_in_bowl/
+
+    # 2-view suite (one side camera + wrist), for the wm_student_2view model:
+    GOOGLE_API_KEY=... uv run python scripts/generate_test_case.py \\
+        --instruction "put the carrot in the bowl" \\
+        --base tri --views exterior_right wrist --name carrot_2view
+
+The robot start state is cloned from the base's ``template.yaml``. Each suite is
+loaded back through InitializationDataset before exit (--no-verify to skip).
 
 Then roll out + score (write a config whose dataset_path points at the suite):
     uv run python scripts/run_evaluation.py --config configs/evaluation/<your>.yaml
@@ -40,6 +50,7 @@ from openworld.scenegen.pipeline import (
     DEFAULT_TEMPLATE_INIT,
     generate_test_cases,
 )
+from openworld.scenegen.views import ALL_VIEWS
 
 
 def main() -> None:
@@ -51,8 +62,16 @@ def main() -> None:
     p.add_argument("--instruction", required=True,
                    help="Plain-language task command; stored as the case instruction "
                         "and (unless --scene-edit is given) drives the scene edit.")
-    p.add_argument("--init-image", required=True,
-                   help="Initial wrist-camera image to edit (the 'already provided' image).")
+    p.add_argument("--init-image", default=None,
+                   help="Initial wrist-camera image to edit; its parent directory is used "
+                        "as the base. Either this or --base is required.")
+    p.add_argument("--base", default="tri",
+                   help="Base view set: assets/<name> (tri/irom) or a path to a dir of "
+                        "view PNGs + template.yaml.")
+    p.add_argument("--views", nargs="+", default=None, choices=list(ALL_VIEWS),
+                   metavar="VIEW",
+                   help="View subset, e.g. `--views exterior_right wrist` for the 2-view "
+                        "model. Default: every view the base has.")
     p.add_argument("--name", default=None,
                    help="Suite name; output goes to data/initializations/<name>. "
                         "Required unless --out-suite is given.")
@@ -91,8 +110,6 @@ def main() -> None:
                    help="Base seed; case i uses seed+i.")
 
     # Suite assembly.
-    p.add_argument("--template-init", default=str(DEFAULT_TEMPLATE_INIT),
-                   help="initialization.yaml whose initial_state is cloned into every case.")
     p.add_argument("--width", type=int, default=320, help="Suite image width (world-model res).")
     p.add_argument("--height", type=int, default=192, help="Suite image height (world-model res).")
     p.add_argument("--scene", default="scenegen", help="metadata.scene tag.")
@@ -100,12 +117,19 @@ def main() -> None:
     p.add_argument("--start-index", type=int, default=0,
                    help="First case index (use to append to an existing suite).")
     p.add_argument("--keep-raw", action="store_true",
-                   help="Keep the intermediate full-res edits under <suite>/_raw/.")
+                   help="Keep the intermediate full-res edits under <case>/_raw/.")
+    p.add_argument("--no-verify", action="store_true",
+                   help="Skip loading the suite back through InitializationDataset.")
     args = p.parse_args()
+
+    if not args.init_image and args.base == "tri" and not args.name and not args.out_suite:
+        p.error("provide --name or --out-suite (and --base or --init-image)")
 
     generate_test_cases(
         instruction=args.instruction,
         init_image=args.init_image,
+        base=args.base,
+        views=args.views,
         name=args.name,
         out_suite=args.out_suite,
         num_cases=args.num_cases,
@@ -119,12 +143,12 @@ def main() -> None:
         side_cond=args.side_cond,
         num_inference_steps=args.num_inference_steps,
         seed=args.seed,
-        template_init=args.template_init,
         target_size=(args.width, args.height),
         scene=args.scene,
         task_type=args.task_type,
         start_index=args.start_index,
         keep_raw=args.keep_raw,
+        verify=not args.no_verify,
     )
 
 

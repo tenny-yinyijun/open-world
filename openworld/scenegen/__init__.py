@@ -1,43 +1,83 @@
-"""scenegen: build world-model test cases from a language instruction + image.
+"""scenegen: build world-model test cases from language + images.
 
-Given a plain-language task instruction and an initial (wrist-camera) image,
-this package produces an Initialization *suite* — the universal handoff format
-consumed by ``scripts/generate_videos.py`` / ``scripts/run_evaluation.py`` — by
-chaining three stages:
+Produces an Initialization *suite* — the handoff format consumed by
+``scripts/run_evaluation.py`` and ``scripts/generate_videos.py`` — from a *base*
+(an unedited scene) plus a list of *edits*.
 
-  1. guardrail  -- rewrite the user's plain instruction into the prompt format
-     the nanobanana (Gemini 2.5 Flash Image) editor understands best
-     (``openworld.scenegen.guardrail``).
-  2. scene edit + multiview  -- spawn the bundled diffusers pipeline
-     (``external/diffusers/.../multiview_droid_with_nanobanana.py``): nanobanana
-     edits the wrist view, then FLUX.2-klein completes the two side views.
-  3. suite assembly  -- resize the three views to the world-model resolution and
-     write one ``initialization.yaml`` per case, cloning the robot start state
-     from a template (``openworld.scenegen.pipeline``).
+Four layers, so a new generative backend only touches the first:
 
-This is the *directed* counterpart to the autonomous ``openworld.redteam`` loop:
-you supply the instruction and image instead of having an LLM propose them. The
-guardrail layer (stage 1) is the piece the redteam loop assumes is "handled
-downstream" but never actually applied — here it is explicit and reusable.
+1. **modes** (:mod:`openworld.scenegen.modes`) — the pluggable generative half.
+   ``nanobanana`` (Gemini 2.5 Flash Image, no GPU) and ``copy`` (unedited
+   control) ship today; register more with ``@register_mode``.
+2. **guardrail** (:mod:`openworld.scenegen.guardrail`) — the prompt layer: rewrite
+   a plain instruction into an editor-ready prompt, then specialize it per camera
+   and chain views so they stay mutually consistent.
+3. **views** (:mod:`openworld.scenegen.views`) — which cameras a suite has and in
+   what order they get edited. Supports both the 3-view DROID set and the 2-view
+   (one side + wrist) set the published ``wm_student_2view`` model uses, and both
+   ``wrist_first`` and ``side_first`` anchor orders.
+4. **suite** (:mod:`openworld.scenegen.suite`) — the on-disk eval contract, and
+   :func:`~openworld.scenegen.suite.verify_suite`, which loads a built suite back
+   through the real ``InitializationDataset`` as an acceptance check.
 
 Entry points:
-  - CLI:    ``python scripts/generate_test_case.py --instruction ... --init-image ...``
-  - module: ``from openworld.scenegen.pipeline import generate_test_cases``
+  - CLI:    ``python scripts/scenegen/build_suite.py --spec <spec.yaml>``
+  - module: ``from openworld.scenegen import build_suite, build_suite_from_spec``
   - prompt: ``from openworld.scenegen.guardrail import build_edit_prompt``
 """
 
-from openworld.scenegen.guardrail import build_edit_prompt
-from openworld.scenegen.nanobanana import (
-    build_suite,
-    build_suite_from_spec,
-    nanobanana_edit,
+from openworld.scenegen.builder import build_suite, build_suite_from_spec
+from openworld.scenegen.guardrail import build_edit_prompt, view_prompt
+from openworld.scenegen.modes import (
+    MODES,
+    CopyMode,
+    NanobananaMode,
+    SceneGenMode,
+    available_modes,
+    get_mode,
+    register_mode,
+)
+from openworld.scenegen.modes.base import Edit
+from openworld.scenegen.modes.nanobanana import nanobanana_edit
+from openworld.scenegen.suite import verify_suite, write_case
+from openworld.scenegen.views import (
+    ALL_VIEWS,
+    SIDE_FIRST,
+    VIEWS_2,
+    VIEWS_3,
+    WRIST_FIRST,
+    Base,
+    ViewSet,
     resolve_base,
 )
 
 __all__ = [
-    "build_edit_prompt",
-    "nanobanana_edit",
-    "resolve_base",
+    # building
     "build_suite",
     "build_suite_from_spec",
+    "Edit",
+    # modes
+    "SceneGenMode",
+    "MODES",
+    "register_mode",
+    "get_mode",
+    "available_modes",
+    "NanobananaMode",
+    "CopyMode",
+    "nanobanana_edit",
+    # prompts
+    "build_edit_prompt",
+    "view_prompt",
+    # views
+    "ViewSet",
+    "Base",
+    "resolve_base",
+    "ALL_VIEWS",
+    "VIEWS_2",
+    "VIEWS_3",
+    "WRIST_FIRST",
+    "SIDE_FIRST",
+    # suite / eval contract
+    "write_case",
+    "verify_suite",
 ]

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Batch suite authoring — "add object" mode (multiview).
 # ============================================================================
-# From an empty-table base view, generate one Initialization case per object by
-# editing the wrist view (nanobanana) + completing the two side views (FLUX.2),
-# via scripts/generate_test_case.py. This is the recipe used to author init_0..7
-# of the 0617_generated suite; the case list below is that recipe — edit it (or
-# the env paths) to author your own suite.
+# From an empty-table base, generate one Initialization case per object by editing
+# the wrist view (nanobanana) + synthesizing the side views (FLUX.2), via the
+# `multiview` mode behind scripts/generate_test_case.py. This is the recipe used
+# to author init_0..7 of the 0617_generated suite; the case list below is that
+# recipe — edit it (or the env paths) to author your own suite.
 #
 # Prereqs (see scripts/generate_test_case.py): GOOGLE_API_KEY, the diffusers fork + multiview
 # checkpoint, a GPU. Override any path via env, e.g.  OUT=/my/suite bash ...
+# BASEDIR must be a base *directory*: view PNGs + a template.yaml with the robot
+# start state (see assets/README.md).
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # repo root
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
@@ -22,16 +24,20 @@ TPL="${TPL:-configs/scenegen/template_vid15.yaml}"
 LOGDIR="${LOGDIR:-slurm_outputs/scenegen_add_object}"
 mkdir -p "$LOGDIR"
 
+# Set VIEWS="exterior_right wrist" to author the same cases for the 2-view model.
+VIEWS="${VIEWS:-}"
+
 run() {  # idx  instruction  scene_edit  seed
   .venv/bin/python scripts/generate_test_case.py \
     --instruction "$2" --scene-edit "$3" \
-    --init-image "$BASEDIR/wrist.png" --out-suite "$OUT" \
+    --base "$BASEDIR" --out-suite "$OUT" \
+    ${VIEWS:+--views $VIEWS} \
     --num-cases 1 --start-index "$1" --seed "$4" --guardrail-backend template \
     --python-exec "$FORK/.venv/bin/python" --diffusers-dir "$FORK" \
     --multiview-script "$FORK/examples/inference/multiview_droid_with_nanobanana.py" \
     --checkpoint-path "$FORK/checkpoints/multiview_droid_v0" \
     --side-cond "$SIDEDIR/side1.png" --side-cond "$SIDEDIR/side2.png" \
-    --template-init "$TPL" --scene "vid15_multiview" \
+    --scene "vid15_multiview" \
     > "$LOGDIR/case_$1.log" 2>&1
   echo "init_$1 done: $(tail -1 "$LOGDIR/case_$1.log")"
 }

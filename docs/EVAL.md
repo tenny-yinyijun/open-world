@@ -127,17 +127,41 @@ uv run python scripts/run_evaluation.py --config configs/evaluation/my_eval.yaml
 
 ## Initialization Directory Structure
 
+One directory per case, holding one PNG per view plus an `initialization.yaml`:
+
 ```
 init_dir/
 ├── init_0/
-│   ├── exterior_left.png
-│   ├── exterior_right.png
+│   ├── exterior_right.png       # one PNG per view in the model's view_order
 │   ├── wrist.png
 │   └── initialization.yaml
 ├── init_1/
 │   └── ...
 └── stats.json  # Optional: action normalization stats
 ```
+
+The views a case carries must cover the `view_order` of the world model you are
+evaluating — `[exterior_right, wrist]` for the 2-view `wm_student_2view`, or all three
+of `[exterior_right, exterior_left, wrist]` for a 3-view model.
+
+`initialization.yaml` should name its views explicitly:
+
+```yaml
+initial_state: {robot: {...}}    # the robot start state
+initial_observation:
+  views:
+    exterior_right: exterior_right.png   # relative to the case dir
+    wrist: wrist.png
+instruction: put the mug in the white container
+```
+
+`initial_observation` may be omitted **only** for a 3-view case, where
+`InitializationDataset` infers the views from the filenames in the case directory.
+Inference requires all three DROID views, so a 2-view case must declare the block or
+the observation is left unset and the rollout fails.
+
+To generate suites, see **[SCENEGEN.md](SCENEGEN.md)** — it writes this format (and
+verifies each suite back through `InitializationDataset` before exiting).
 
 ## Available Configs
 

@@ -136,11 +136,11 @@ reward-wm = [
     "lpips",
 ]
 scenegen = [
-    # `openworld.scenegen` builds test-case suites from a language instruction +
-    # an initial image. The guardrail rewrite (stage 1) calls text Gemini
-    # in-process, so google-genai is needed here; the heavy FLUX multiview stage
-    # runs out of the external/diffusers fork in a subprocess (not installed via
-    # this extra). nanobanana (inside that subprocess) also uses google-genai.
+    # `openworld.scenegen` builds Initialization suites from a base scene + a list
+    # of edits (docs/SCENEGEN.md). The guardrail rewrite and the `nanobanana` mode
+    # both call Gemini in-process, so google-genai is needed here. The `multiview`
+    # mode's heavy FLUX stage runs out of the external/diffusers fork in a
+    # subprocess and is NOT installed via this extra; the `copy` mode needs neither.
     "google-genai",
 ]
 autoregressive = [
